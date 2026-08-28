@@ -1109,6 +1109,109 @@
       line-height: 1.6;
     }
 
+    /* ==========================================================================
+       Side Category Navigator (Left Floating Scrollspy)
+       ========================================================================== */
+    .side-category-nav {
+      position: fixed;
+      left: 20px;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 80;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      background: var(--glass-bg);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--glass-border);
+      border-radius: 16px;
+      box-shadow: var(--glass-shadow);
+      padding: 8px 6px;
+      max-height: 65vh;
+      overflow-y: auto;
+      overflow-x: hidden;
+      max-width: 140px;
+      opacity: 0.92;
+      transition: opacity var(--transition-speed) ease, transform var(--transition-speed) ease, box-shadow var(--transition-speed) ease;
+    }
+
+    .side-category-nav:hover {
+      opacity: 1;
+      box-shadow: var(--glass-shadow-hover);
+    }
+
+    .side-category-nav[hidden] {
+      display: none !important;
+    }
+
+    .side-nav-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 10px;
+      border: none;
+      background: transparent;
+      color: var(--text-2);
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      text-align: left;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      transition: all 0.15s ease;
+      outline: none;
+      width: 100%;
+    }
+
+    .side-nav-item::before {
+      content: "";
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: currentColor;
+      opacity: 0.5;
+      flex-shrink: 0;
+      transition: transform 0.15s ease, opacity 0.15s ease;
+    }
+
+    .side-nav-item:hover {
+      background: var(--accent-light);
+      color: var(--accent);
+    }
+
+    .side-nav-item:hover::before {
+      opacity: 1;
+      transform: scale(1.4);
+    }
+
+    .side-nav-item.active {
+      background: var(--accent);
+      color: #ffffff;
+      font-weight: 600;
+      box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);
+    }
+
+    .side-nav-item.active::before {
+      background: #ffffff;
+      opacity: 1;
+      transform: scale(1.4);
+    }
+
+    .side-nav-item:focus-visible {
+      box-shadow: var(--accent-glow);
+    }
+
+    /* 窄屏或移动端自动隐藏左侧悬浮导航，防止遮挡主内容 */
+    @media (max-width: 1200px) {
+      .side-category-nav {
+        display: none !important;
+      }
+    }
+
     /* 分类管理模态框 */
     .cat-hint {
       font-size: 12px;
@@ -1116,21 +1219,124 @@
       line-height: 1.7;
     }
 
+    .cat-add-bar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 2px;
+    }
+
+    .cat-add-input {
+      flex: 1;
+      min-width: 0;
+      font-family: inherit;
+      font-size: 13px;
+      color: var(--text-1);
+      background: var(--tag-bg);
+      border: 1px solid var(--glass-border);
+      border-radius: 10px;
+      padding: 7px 12px;
+      outline: none;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .cat-add-input:focus {
+      border-color: var(--accent);
+      box-shadow: var(--accent-glow);
+    }
+
+    .cat-add-btn {
+      flex-shrink: 0;
+      padding: 7px 14px;
+      font-size: 12.5px;
+    }
+
     .cat-list {
       display: flex;
       flex-direction: column;
       gap: 8px;
-      max-height: 300px;
+      max-height: 320px;
       overflow-y: auto;
+      padding-right: 2px;
     }
 
     .cat-row {
       display: flex;
       align-items: center;
-      gap: 10px;
-      padding: 8px 10px;
+      gap: 8px;
+      padding: 7px 10px;
       border: 1px solid var(--divider-color);
       border-radius: 12px;
+      background: var(--glass-bg);
+      transition: all 0.15s ease;
+    }
+
+    .cat-drag-handle {
+      cursor: grab;
+      user-select: none;
+      color: var(--text-muted);
+      font-size: 16px;
+      padding: 0 3px;
+      transition: color 0.15s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .cat-drag-handle:hover,
+    .cat-row:hover .cat-drag-handle {
+      color: var(--text-1);
+    }
+
+    .cat-drag-handle:active {
+      cursor: grabbing;
+    }
+
+    .cat-reorder-btns {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .cat-order-btn {
+      width: 20px;
+      height: 13px;
+      border-radius: 4px;
+      border: 1px solid var(--glass-border);
+      background: var(--glass-bg);
+      color: var(--text-2);
+      font-size: 8px;
+      line-height: 1;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+      padding: 0;
+    }
+
+    .cat-order-btn:hover:not(:disabled) {
+      background: var(--accent-light);
+      color: var(--accent);
+      border-color: var(--glass-border-hover);
+    }
+
+    .cat-order-btn:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+
+    .cat-row.dragging {
+      opacity: 0.45;
+      background: var(--accent-light);
+      border-color: var(--accent);
+    }
+
+    .cat-row.drag-over-top {
+      border-top: 2px solid var(--accent);
+    }
+
+    .cat-row.drag-over-bottom {
+      border-bottom: 2px solid var(--accent);
     }
 
     .cat-name-input {
@@ -1147,7 +1353,10 @@
       transition: border-color 0.15s ease;
     }
 
-    .cat-name-input:focus { border-color: var(--accent); }
+    .cat-name-input:focus {
+      border-color: var(--accent);
+      box-shadow: var(--accent-glow);
+    }
 
     .cat-count {
       flex-shrink: 0;
@@ -1166,6 +1375,9 @@
   </style>
 </head>
 <body>
+
+  <!-- Left Floating Category Navigator -->
+  <nav class="side-category-nav" id="sideCategoryNav" aria-label="分类快捷导航" hidden></nav>
 
   <!-- Ambient Light Orbs -->
   <div class="ambient-background" aria-hidden="true">
@@ -1334,9 +1546,14 @@
         <h3>分类管理</h3>
         <button class="modal-close" aria-label="关闭">✕</button>
       </div>
-      <p class="cat-hint">重命名会同步到该分类下的全部自定义站点，改名与其他分类同名即合并；删除分类会把其中站点移入「快速收藏」。内置默认分类不可在此修改。</p>
+      <p class="cat-hint">支持拖拽或使用 ▲/▼ 调整分类顺序，重命名与删除分类。重命名会同步更新该分类下的全部站点；删除分类会把其中站点移入「快速收藏」。</p>
+      <div class="cat-add-bar">
+        <input type="text" class="cat-add-input" id="catAddInput" maxlength="20" placeholder="新建分类名称…">
+        <button class="btn-primary cat-add-btn" id="catAddBtn" type="button">＋ 添加分类</button>
+      </div>
       <div class="cat-list" id="catList"></div>
       <div class="modal-actions">
+        <button class="btn-secondary" id="catResetBtn" type="button">恢复默认分类</button>
         <span class="modal-spacer"></span>
         <button class="btn-primary modal-cancel" type="button">完成</button>
       </div>
