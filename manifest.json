@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "nav-guide 导航",
+  "version": "1.3.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApXP/IvdPZ/vVi6K0D+16+jxLh9zj5XM+v//WDfvsoWGcQWn9IEtA7P3nWWwiYc8Mia6JXTg3WaS4rDed4Yv6faHUAoTtJN+RQjCiQyWDiqqFVdNuPW7Jn1/RWZgVXFiLGRAD1fmrf1lboRfqx71VfJplkGkeg278mmhlUz9QlpQqwTSJwbzZ+sPt3sWFGwq/NRjEbof2nneadC2GpQP/Kysd758jUPzt1rNuiq9hFpUbmkeTjjE+nDZcls0nvZHu12VGZ5e97vpckI6Mcak1B2NxrHqqcCXG47Ro7WdS74SLB7GXugxBDUJjucCmWaWhAu/HFo0OdayEce3fYUukOwIDAQAB",
+  "update_url": "https://lonegale.github.io/nav-guide/updates.xml",
+  "description": "玻璃拟态新标签页网址导航:点击图标或右键收藏当前网页,可记录账号等备注信息,支持 Google 账号多端自动云同步。",
+  "chrome_url_overrides": {
+    "newtab": "index.html"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "添加当前页到导航",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": ["storage", "activeTab", "contextMenus"],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

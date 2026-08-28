@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>添加到导航</title>
+  <style>
+    :root {
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    }
+    html[data-scheme="light"] {
+      --bg: #f1f5f9;
+      --field-bg: #e8edf3;
+      --border: rgba(15, 23, 42, 0.10);
+      --text-1: #1e293b;
+      --text-2: #64748b;
+      --accent: #6366f1;
+      --accent-hover: #4f46e5;
+      --danger: #ef4444;
+    }
+    html[data-scheme="dark"] {
+      --bg: #0b0f19;
+      --field-bg: #1a2133;
+      --border: rgba(255, 255, 255, 0.12);
+      --text-1: #f1f5f9;
+      --text-2: #94a3b8;
+      --accent: #818cf8;
+      --accent-hover: #a5b4fc;
+      --danger: #f87171;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 340px;
+      font-family: var(--font-sans);
+      background: var(--bg);
+      color: var(--text-1);
+      padding: 16px;
+    }
+
+    /* 页面预览头 */
+    .page-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .page-icon {
+      width: 36px; height: 36px;
+      border-radius: 10px;
+      background: var(--field-bg);
+      border: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 15px; color: #fff;
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+    .page-icon img { width: 20px; height: 20px; object-fit: contain; }
+    .page-meta { min-width: 0; }
+    .page-title {
+      font-size: 13.5px; font-weight: 700;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .page-domain {
+      font-size: 11.5px; color: var(--text-2);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    .edit-flag {
+      display: none;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 12%, transparent);
+      border-radius: 8px;
+      padding: 6px 10px;
+      margin-bottom: 12px;
+      font-weight: 600;
+    }
+    .edit-flag.show { display: flex; }
+
+    .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 11px; }
+    .field > span { font-size: 11.5px; font-weight: 600; color: var(--text-2); }
+
+    input[type="text"], select, textarea {
+      font-family: inherit;
+      font-size: 13px;
+      color: var(--text-1);
+      background: var(--field-bg);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 7px 10px;
+      outline: none;
+      width: 100%;
+      transition: border-color 0.15s ease;
+    }
+    input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+    textarea { resize: vertical; min-height: 54px; }
+
+    .new-cat { display: none; margin-top: 6px; }
+    .new-cat.show { display: flex; flex-direction: column; gap: 4px; }
+
+    .hint {
+      font-size: 11px;
+      color: var(--text-2);
+      margin-top: 4px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .error {
+      color: var(--danger);
+      font-size: 12px;
+      min-height: 15px;
+      margin: 2px 0 6px;
+    }
+
+    .actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+    .spacer { flex: 1; }
+    button {
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      border-radius: 9px;
+      padding: 8px 18px;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all 0.15s ease;
+    }
+    .btn-remove {
+      background: transparent;
+      color: var(--danger);
+      display: none;
+    }
+    .btn-remove.show { display: inline-block; }
+    .btn-remove:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); }
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      min-width: 96px;
+    }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-primary:disabled { opacity: 0.6; cursor: default; }
+
+    /* 不可收藏页面提示态 */
+    .unsupported {
+      display: none;
+      text-align: center;
+      padding: 26px 10px;
+      color: var(--text-2);
+      font-size: 13px;
+      line-height: 1.7;
+    }
+    .unsupported .big { font-size: 26px; display: block; margin-bottom: 8px; }
+    body.mode-unsupported form,
+    body.mode-unsupported .page-head,
+    body.mode-unsupported .edit-flag { display: none; }
+    body.mode-unsupported .unsupported { display: block; }
+  </style>
+</head>
+<body>
+
+  <div class="page-head">
+    <div class="page-icon" id="pageIcon">✦</div>
+    <div class="page-meta">
+      <div class="page-title" id="pageTitle">—</div>
+      <div class="page-domain" id="pageDomain"></div>
+    </div>
+  </div>
+
+  <div class="edit-flag" id="editFlag">✓ 已在导航中 · <span id="editCat"></span></div>
+
+  <div class="unsupported">
+    <span class="big">🚫</span>
+    此页面无法收藏<br>仅支持 http / https 网页
+  </div>
+
+  <form id="form">
+    <div class="field">
+      <span>名称</span>
+      <input type="text" id="fName" required maxlength="60">
+    </div>
+
+    <div class="field">
+      <span>分类</span>
+      <select id="fCategory"></select>
+      <div class="new-cat" id="newCat">
+        <span>新分类名称</span>
+        <input type="text" id="fNewCategory" maxlength="20" placeholder="输入新分类名">
+      </div>
+    </div>
+
+    <div class="field">
+      <span>网址</span>
+      <input type="text" id="fUrl" required>
+    </div>
+
+    <div class="field">
+      <span>描述(可选)</span>
+      <input type="text" id="fDesc" maxlength="80" placeholder="一句话说明">
+    </div>
+
+    <div class="field">
+      <span>账号信息(可选)</span>
+      <textarea id="fAccount" maxlength="500" placeholder="如:账号 xxx@example.com / 密码提示…"></textarea>
+      <div class="hint">🔒 仅保存在本机浏览器,不会上传,请自行斟酌所填内容</div>
+    </div>
+
+    <div class="error" id="fError"></div>
+
+    <div class="actions">
+      <button type="button" class="btn-remove" id="removeBtn">移除</button>
+      <span class="spacer"></span>
+      <button type="submit" class="btn-primary" id="saveBtn">添加到导航</button>
+    </div>
+  </form>
+
+  <script src="common.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
