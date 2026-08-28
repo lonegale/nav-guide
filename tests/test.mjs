@@ -125,7 +125,7 @@ async function extensionMode() {
   let sw = ctx.serviceWorkers().find((w) => w.url().includes("background.js"));
   if (!sw) sw = await ctx.waitForEvent("serviceworker", { timeout: 10000 });
   const extId = new URL(sw.url()).host;
-  ok(extId === "nbppdilmfooepdggolkeiplefdhphflp", `固定公钥生效: Extension ID 为 ${extId}`);
+  ok(extId === "njogdhegfdcojlflfichbpekgnacaknp", `固定公钥生效: Extension ID 为 ${extId}`);
   const page = await ctx.newPage();
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));

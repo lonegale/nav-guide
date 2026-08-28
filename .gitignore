@@ -8,5 +8,13 @@ node_modules/
 .vscode/
 .idea/
 
+# Build and distribution
+dist/
+.staging/
+*.crx
+*.zip
+key.pem
+.temp-key.pem
+
 # Temporary files
 /tmp/
