@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "nav-guide 导航",
+  "version": "1.3.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA187RDp1eRV3bBkUXoWJL50lbkMeIIGNLfijl8bS5QFxem7bVaQ/31lcx4P8R0aFqYFH1vGxtfA0BQQ51ryTLS/nYiz9R7MnQy2my0S8D++zpuPgCJ6F7s5kEXz+f9qf5roK5vm1w1XmQ+RIyjg0jApsm0nlGTuI06gcACc2THuTvECg3vBmGNl/581z/rHm7QIIcxqy8RFrv8btoUeIiF1jCUR1tTpnx4Sy0VUtr/Wv8fFJP3kUwCPPRPArXV6zTjMe+IQ779br7NOc+nVCZi/FmXzIq3BhKbWReeBbcj9oSYyAkpEJcRMrRGo0Lv2BZcN7qTPMZ32KP8ZgH7Zf0dwIDAQAB",
+  "description": "玻璃拟态新标签页网址导航:点击图标或右键收藏当前网页,可记录账号等备注信息,支持 Google 账号多端自动云同步。",
+  "chrome_url_overrides": {
+    "newtab": "index.html"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "添加当前页到导航",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": ["storage", "activeTab", "contextMenus"],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

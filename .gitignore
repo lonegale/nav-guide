@@ -1,0 +1,12 @@
+# Dependencies
+node_modules/
+
+# OS and Editor files
+.DS_Store
+.zcode/
+*.log
+.vscode/
+.idea/
+
+# Temporary files
+/tmp/
