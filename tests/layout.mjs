@@ -105,6 +105,15 @@ r = await p.evaluate(() => {
 ok(r, "模态框居中且宽度受限");
 await p.keyboard.press("Escape");
 
+// 左侧悬浮导航在 1280 视口下位于左侧且不溢出
+r = await p.evaluate(() => {
+  const nav = document.getElementById("sideCategoryNav");
+  if (!nav || nav.hidden) return false;
+  const rect = nav.getBoundingClientRect();
+  return rect.left >= 0 && rect.right < 200 && rect.top > 0;
+});
+ok(r, "左侧悬浮导航在桌面宽屏下正确定位且不溢出");
+
 // 触屏常显:无头桌面 Chromium 恒报 hover:hover,无法运行时触发,
 // 故断言 @media (hover:none) 常显规则存在于样式表(注入法已验证规则本身生效)
 r = await p.evaluate(() => {
@@ -119,7 +128,8 @@ r = await p.evaluate(() => {
   return false;
 });
 ok(r, "样式表含 @media (hover:none) 角标常显规则");
-// 移动端视口无横向溢出
+
+// 移动端视口无横向溢出且侧边导航隐藏
 const m = await ctx.newPage();
 await m.setViewportSize({ width: 390, height: 844 });
 await m.goto(`chrome-extension://${new URL(sw.url()).host}/index.html`);
@@ -127,6 +137,12 @@ await m.waitForSelector(".site-card");
 await m.waitForTimeout(300);
 r = await m.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
 ok(r, "390px 视口无横向溢出");
+
+r = await m.evaluate(() => {
+  const nav = document.getElementById("sideCategoryNav");
+  return !nav || window.getComputedStyle(nav).display === "none";
+});
+ok(r, "390px 移动端视口下左侧悬浮导航自动隐藏");
 
 await ctx.close();
 console.log(`\n布局断言: ${pass} 通过 / ${fail} 失败`);

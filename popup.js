@@ -52,11 +52,10 @@
     }
   }
 
-  function fillCategorySelect(customNames, selected) {
-    const names = [...CONFIG.categories.map((c) => c.name), ...customNames];
+  function fillCategorySelect(allCategoryNames, selected) {
     const seen = new Set();
     fCategory.innerHTML = "";
-    names.forEach((n) => {
+    allCategoryNames.forEach((n) => {
       if (!n || seen.has(n)) return;
       seen.add(n);
       const opt = document.createElement("option");
@@ -72,8 +71,18 @@
     if (selected && seen.has(selected)) {
       fCategory.value = selected;
     } else {
-      fCategory.value = CONFIG.categories[0] ? CONFIG.categories[0].name : NEW_CAT;
+      fCategory.value = allCategoryNames[0] || NEW_CAT;
     }
+  }
+
+  function getStorageData() {
+    return navStorage.get([NAV_STORAGE_KEY, NAV_CAT_ORDER_KEY, NAV_CAT_MAP_KEY]).then((res) => {
+      return {
+        sites: Array.isArray(res && res[NAV_STORAGE_KEY]) ? res[NAV_STORAGE_KEY] : [],
+        catOrder: Array.isArray(res && res[NAV_CAT_ORDER_KEY]) ? res[NAV_CAT_ORDER_KEY] : [],
+        catMap: (res && res[NAV_CAT_MAP_KEY] && typeof res[NAV_CAT_MAP_KEY] === "object") ? res[NAV_CAT_MAP_KEY] : {},
+      };
+    });
   }
 
   function getSites() {
@@ -101,7 +110,7 @@
       return;
     }
 
-    const sites = await getSites();
+    const { sites, catOrder, catMap } = await getStorageData();
     editing = navFindSite(sites, tab.url) || null;
 
     // 页面预览
@@ -111,10 +120,27 @@
     pageDomain.textContent = domainOf(tab.url);
     setIconPreview(iconUrl, (displayName || "✦").trim().charAt(0).toUpperCase());
 
-    // 分类选项:默认分类 + 已有自定义分类;新增时预选上次使用的分类
-    const customNames = sites.map((s) => s.category);
+    // 分类选项: 收集所有分类并按 catOrder 排序
+    const names = new Set();
+    catOrder.forEach((n) => { if (n && n.trim()) names.add(n.trim()); });
+    CONFIG.categories.forEach((c) => {
+      const n = (catMap && catMap[c.name]) || c.name;
+      names.add(n);
+    });
+    sites.forEach((s) => {
+      if (s.category && s.category.trim()) names.add(s.category.trim());
+    });
+    const sortedCatNames = Array.from(names).sort((a, b) => {
+      const ia = catOrder.indexOf(a);
+      const ib = catOrder.indexOf(b);
+      if (ia !== -1 && ib !== -1) return ia - ib;
+      if (ia !== -1) return -1;
+      if (ib !== -1) return 1;
+      return 0;
+    });
+
     const lastCat = editing ? null : localStorage.getItem("nav-last-cat");
-    fillCategorySelect(customNames, editing ? editing.category : (lastCat || null));
+    fillCategorySelect(sortedCatNames, editing ? editing.category : (lastCat || null));
 
     // 表单预填
     fName.value = displayName;

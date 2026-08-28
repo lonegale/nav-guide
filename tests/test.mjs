@@ -22,7 +22,7 @@ function section(t) { console.log("\n== " + t + " =="); }
 async function plainMode() {
   section("A. 纯网页模式(file:// 等价)");
   const browser = await chromium.launch({ executablePath: EXEC, headless: true });
-  const page = await browser.newPage();
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("console", (m) => {
@@ -35,6 +35,17 @@ async function plainMode() {
   ok(errors.length === 0, "无 JS 报错" + (errors.length ? ": " + errors[0] : ""));
   ok((await page.locator(".site-card").count()) === 24, "24 张默认卡片");
 
+  // target = "_self" 检查
+  const cardTarget = await page.locator(".site-card").first().getAttribute("target");
+  ok(cardTarget === "_self", "卡片 target 默认为 _self 在当前窗口打开");
+
+  // 左侧悬浮分类组件检查
+  const sideNavCount = await page.locator("#sideCategoryNav .side-nav-item").count();
+  ok(sideNavCount === 4, "左侧悬浮导航渲染 4 个分类胶囊");
+  await page.locator("#sideCategoryNav .side-nav-item", { hasText: "开发" }).click();
+  await page.waitForTimeout(300);
+  ok((await page.locator("#sideCategoryNav .side-nav-item.active").textContent()).includes("开发"), "点击左侧开发分类高亮激活并定位");
+
   // 添加/设置入口应隐藏
   ok(await page.locator("#addBtn").isHidden(), "+ 按钮隐藏(无扩展环境)");
   ok(await page.locator("#settingsBtn").isHidden(), "设置按钮隐藏(无扩展环境)");
@@ -44,6 +55,7 @@ async function plainMode() {
   let visible = await page.locator(".site-card:not(.hidden)").count();
   ok(visible === 1, "过滤 'git' 仅剩 1 张卡片 (实际 " + visible + ")");
   ok(await page.locator("#noResult").isHidden(), "有结果时无结果提示隐藏");
+  ok(await page.locator("#sideCategoryNav").isHidden(), "过滤至单分类时左侧悬浮导航自动隐藏");
 
   await page.fill("#searchInput", "zzz不存在的站");
   visible = await page.locator(".site-card:not(.hidden)").count();
@@ -53,6 +65,7 @@ async function plainMode() {
   await page.press("#searchInput", "Escape");
   ok(await page.inputValue("#searchInput") === "" &&
      (await page.locator(".site-card:not(.hidden)").count()) === 24, "Esc 清空过滤恢复全部卡片");
+  ok(await page.locator("#sideCategoryNav").isVisible(), "清空过滤后左侧悬浮导航恢复可见");
 
   // ↓ 进入第一张卡片
   await page.focus("#searchInput");
@@ -213,34 +226,69 @@ async function extensionMode() {
   await page.mouse.click(20, 20);
   ok((await page.locator(".account-popover").count()) === 0, "点击别处关闭账号弹层");
 
-  /* ---- 最近使用 ---- */
-  const [newPage] = await Promise.all([
-    ctx.waitForEvent("page", { timeout: 8000 }),
-    card.click(),
-  ]);
-  await newPage.close();
+  /* ---- 最近使用(卡片 target=_self 点击触发) ---- */
+  await page.evaluate(() => {
+    // 拦截直接导航以便单测保持在当前页并断言 recordRecent 触发
+    window.addEventListener("click", (e) => {
+      const a = e.target.closest("a.site-card");
+      if (a) e.preventDefault();
+    }, { capture: true });
+  });
+  await card.click();
   await page.waitForTimeout(400);
   const recentSec = page.locator('.category-section[data-recent]');
   ok(await recentSec.count() === 1 && (await recentSec.locator(".site-card").count()) === 1,
      "点击卡片后出现「最近使用」区块");
 
-  /* ---- 分类管理:重命名 → 删除(移入快速收藏) ---- */
+  /* ---- 全量分类管理: 排序(▲/▼)、新建、重命名、删除 ---- */
   await page.click("#settingsBtn");
   await page.click("#manageCatsBtn");
   ok(await page.locator("#catModal").evaluate((el) => el.classList.contains("open")), "打开分类管理");
-  const row = page.locator(".cat-row", { hasText: "1 个站点" });
-  ok(await row.count() === 1, "列出 1 个自定义分类");
-  await row.locator(".cat-name-input").fill("改名分类");
-  await row.locator(".cat-name-input").press("Enter");
+  
+  // 验证包含所有分类(4个默认 + 1个自定义)
+  const catRows = page.locator(".cat-row");
+  ok(await catRows.count() === 5, "全量分类管理包含全部 5 个分类 (4默认+1自定义)");
+
+  // 测试新建分类
+  await page.fill("#catAddInput", "设计工具");
+  await page.click("#catAddBtn");
+  await page.waitForTimeout(200);
+  ok(await page.locator('.cat-row[data-cat-name="设计工具"]').count() === 1, "在分类管理中直接添加新分类");
+
+  // 测试下移第一个分类 (常用)
+  const firstInput = page.locator(".cat-row").first().locator(".cat-name-input");
+  ok(await firstInput.inputValue() === "常用", "第一项原本为「常用」");
+  await page.locator(".cat-row").first().locator(".cat-down-btn").click();
   await page.waitForTimeout(300);
-  sites = await page.evaluate(() => new Promise((r) => chrome.storage.local.get(["navSites"], (x) => r(x.navSites))));
-  ok(sites[0].category === "改名分类", "重命名同步到站点");
-  await page.locator(".cat-del").click();
-  await page.locator(".cat-del").click(); // 二次确认
+  const newFirstInput = page.locator(".cat-row").first().locator(".cat-name-input");
+  ok(await newFirstInput.inputValue() === "开发", "下移后「开发」成为第一项");
+
+  // 验证主页面分类区块顺序也已同步调整
+  const firstSecTitle = await page.locator(".category-section:not([data-recent]) .category-title").first().textContent();
+  ok(firstSecTitle === "开发", "主页面首个分类区块同步变更为「开发」");
+
+  // 测试重命名默认分类 (开发 -> 编程开发)
+  const devRow = page.locator('.cat-row[data-cat-name="开发"]');
+  await devRow.locator(".cat-name-input").fill("编程开发");
+  await devRow.locator(".cat-name-input").press("Enter");
+  await page.waitForTimeout(300);
+  const renamedSec = page.locator(".category-section", { hasText: "编程开发" });
+  ok(await renamedSec.count() === 1, "重命名内置分类后主页面标题同步为「编程开发」");
+
+  // 测试删除自定义分类 (我的分类 -> 移入快速收藏)
+  const myCatRow = page.locator('.cat-row[data-cat-name="我的分类"]');
+  await myCatRow.locator(".cat-del").click();
+  await myCatRow.locator(".cat-del").click(); // 二次确认
   await page.waitForTimeout(300);
   sites = await page.evaluate(() => new Promise((r) => chrome.storage.local.get(["navSites"], (x) => r(x.navSites))));
   ok(sites[0].category === "快速收藏", "删除分类后站点移入「快速收藏」");
   ok(await page.locator(".category-section", { hasText: "快速收藏" }).count() === 1, "快速收藏区块出现");
+
+  // 测试恢复默认分类
+  await page.click("#catResetBtn");
+  await page.waitForTimeout(300);
+  const resetFirst = await page.locator(".category-section:not([data-recent]) .category-title").first().textContent();
+  ok(resetFirst === "常用", "恢复默认分类后首项恢复为「常用」");
   await page.keyboard.press("Escape");
 
   /* ---- 导出 ---- */
@@ -252,11 +300,14 @@ async function extensionMode() {
   const dlPath = "/tmp/nav-test/export.json";
   await download.saveAs(dlPath);
   const exported = JSON.parse(fs.readFileSync(dlPath, "utf8"));
-  ok(exported.app === "nav-guide" && exported.sites.length === 1, "导出 JSON 含站点数据");
+  ok(exported.app === "nav-guide" && exported.sites.length === 1 && Array.isArray(exported.categoryOrder),
+     "导出 JSON 含站点数据与分类顺序");
 
   /* ---- 导入(改名字段模拟外部备份) ---- */
   const backup = JSON.stringify({
-    app: "nav-guide", version: 1, sites: [
+    app: "nav-guide", version: 2,
+    categoryOrder: ["备份分类", "常用", "开发", "工具", "娱乐"],
+    sites: [
       { name: "导入站", url: "https://example.com/import", category: "备份分类", account: "acc" },
       { name: "更新站", url: "http://127.0.0.1:8742/", category: "备份分类", desc: "updated" },
     ],

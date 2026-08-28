@@ -11,6 +11,7 @@
   const currentEngineName = document.getElementById("currentEngineName");
   const engineDropdown = document.getElementById("engineDropdown");
   const categoriesContainer = document.getElementById("categoriesContainer");
+  const sideCategoryNav = document.getElementById("sideCategoryNav");
   const themeBtn = document.getElementById("themeBtn");
   const themeIcon = document.getElementById("themeIcon");
   const addBtn = document.getElementById("addBtn");
@@ -236,11 +237,13 @@
     const q = searchInput.value.trim().toLowerCase();
     const sections = categoriesContainer.querySelectorAll(".category-section");
     let visibleCount = 0;
+    let visibleSections = 0;
 
     sections.forEach((sec) => {
       if (!q) {
         sec.classList.remove("hidden");
         sec.querySelectorAll(".site-card").forEach((c) => c.classList.remove("hidden"));
+        if (!sec.dataset.recent) visibleSections++;
         return;
       }
       if (sec.dataset.recent) {
@@ -254,10 +257,26 @@
         if (match) secVisible++;
       });
       sec.classList.toggle("hidden", secVisible === 0);
-      visibleCount += secVisible;
+      if (secVisible > 0) {
+        visibleSections++;
+        visibleCount += secVisible;
+      }
     });
 
     noResult.hidden = !q || visibleCount > 0;
+
+    if (sideCategoryNav) {
+      if (visibleSections <= 1) {
+        sideCategoryNav.hidden = true;
+      } else {
+        sideCategoryNav.hidden = false;
+        sideCategoryNav.querySelectorAll(".side-nav-item").forEach((item) => {
+          const sec = document.querySelector(`.category-section[data-cat-name="${CSS.escape(item.dataset.cat)}"]`);
+          item.classList.toggle("hidden", !sec || sec.classList.contains("hidden"));
+        });
+        onScrollUpdateActiveSideNav();
+      }
+    }
   }
 
   function firstVisibleCard() {
@@ -348,6 +367,8 @@
   let userSites = [];
   let hiddenDefaults = []; // 已隐藏的默认站点(normalized url)
   let recent = [];         // 最近使用 [{url, name, at}]
+  let categoryOrder = [];  // 分类自定义显示顺序数组
+  let categoryMap = {};    // 默认分类重命名映射
   let lastSavedSignature = null; // 本页自身写入的签名,用于避免自身变动弹「已添加」toast
 
   function storageGet(keys) {
@@ -359,10 +380,12 @@
 
   function loadAll() {
     if (!IS_EXT) return Promise.resolve();
-    return storageGet([NAV_STORAGE_KEY, NAV_HIDDEN_KEY, NAV_RECENT_KEY]).then((res) => {
+    return storageGet([NAV_STORAGE_KEY, NAV_HIDDEN_KEY, NAV_RECENT_KEY, NAV_CAT_ORDER_KEY, NAV_CAT_MAP_KEY]).then((res) => {
       userSites = Array.isArray(res[NAV_STORAGE_KEY]) ? res[NAV_STORAGE_KEY] : [];
       hiddenDefaults = Array.isArray(res[NAV_HIDDEN_KEY]) ? res[NAV_HIDDEN_KEY] : [];
       recent = Array.isArray(res[NAV_RECENT_KEY]) ? res[NAV_RECENT_KEY] : [];
+      categoryOrder = Array.isArray(res[NAV_CAT_ORDER_KEY]) ? res[NAV_CAT_ORDER_KEY] : [];
+      categoryMap = (res[NAV_CAT_MAP_KEY] && typeof res[NAV_CAT_MAP_KEY] === "object") ? res[NAV_CAT_MAP_KEY] : {};
     });
   }
 
@@ -372,9 +395,53 @@
     return storageSet({ [NAV_STORAGE_KEY]: userSites });
   }
 
+  function saveCategoryState() {
+    if (!IS_EXT) return Promise.resolve();
+    return storageSet({
+      [NAV_CAT_ORDER_KEY]: categoryOrder,
+      [NAV_CAT_MAP_KEY]: categoryMap,
+    });
+  }
+
+  function saveAllCategoryState() {
+    if (!IS_EXT) return Promise.resolve();
+    lastSavedSignature = JSON.stringify(userSites);
+    return storageSet({
+      [NAV_STORAGE_KEY]: userSites,
+      [NAV_HIDDEN_KEY]: hiddenDefaults,
+      [NAV_CAT_ORDER_KEY]: categoryOrder,
+      [NAV_CAT_MAP_KEY]: categoryMap,
+    });
+  }
+
+  function getAllCategoryNames() {
+    const names = new Set();
+    if (Array.isArray(categoryOrder)) {
+      categoryOrder.forEach((n) => { if (n && n.trim()) names.add(n.trim()); });
+    }
+    CONFIG.categories.forEach((c) => {
+      const n = (categoryMap && categoryMap[c.name]) || c.name;
+      names.add(n);
+    });
+    userSites.forEach((s) => {
+      if (s.category && s.category.trim()) names.add(s.category.trim());
+    });
+
+    const orderList = Array.isArray(categoryOrder) ? categoryOrder : [];
+    return Array.from(names).sort((a, b) => {
+      const ia = orderList.indexOf(a);
+      const ib = orderList.indexOf(b);
+      if (ia !== -1 && ib !== -1) return ia - ib;
+      if (ia !== -1) return -1;
+      if (ib !== -1) return 1;
+      return 0;
+    });
+  }
+
   function getCustomCategoryNames() {
+    const defaultNames = new Set(CONFIG.categories.map((c) => (categoryMap && categoryMap[c.name]) || c.name));
     const names = new Set(userSites.map((s) => s.category));
-    CONFIG.categories.forEach((c) => names.delete(c.name));
+    defaultNames.forEach((n) => names.delete(n));
     return [...names];
   }
 
@@ -415,40 +482,81 @@
           : [];
         needRender = true;
       }
+      if (changes[NAV_CAT_ORDER_KEY]) {
+        categoryOrder = Array.isArray(changes[NAV_CAT_ORDER_KEY].newValue)
+          ? changes[NAV_CAT_ORDER_KEY].newValue
+          : [];
+        needRender = true;
+      }
+      if (changes[NAV_CAT_MAP_KEY]) {
+        categoryMap = (changes[NAV_CAT_MAP_KEY].newValue && typeof changes[NAV_CAT_MAP_KEY].newValue === "object")
+          ? changes[NAV_CAT_MAP_KEY].newValue
+          : {};
+        needRender = true;
+      }
 
       if (needRender) renderCategories();
     });
   }
 
-  /* CONFIG 默认分类(滤除已隐藏) + 用户站点按分类合并;新分类追加末尾;
-     分类内置顶优先(稳定排序,不打乱原有相对顺序);空分类不渲染 */
+  /* CONFIG 默认分类(根据 categoryMap 重命名并滤除已隐藏) + 用户站点按分类合并;
+     按 categoryOrder 自定义排序;分类内置顶优先(稳定排序);空分类不渲染 */
   function getMergedCategories() {
     const hiddenSet = new Set(hiddenDefaults);
-    const cats = CONFIG.categories.map((c) => ({
-      name: c.name,
-      sites: c.sites.filter((s) => !hiddenSet.has(navNormalizeUrl(s.url))),
-    }));
-    const customMap = new Map();
+
+    // 1. 映射默认分类及其站点
+    const mappedDefaults = new Map();
+    CONFIG.categories.forEach((c) => {
+      const targetName = (categoryMap && categoryMap[c.name]) || c.name;
+      const visibleSites = c.sites.filter((s) => !hiddenSet.has(navNormalizeUrl(s.url)));
+      if (!mappedDefaults.has(targetName)) {
+        mappedDefaults.set(targetName, []);
+      }
+      mappedDefaults.get(targetName).push(...visibleSites);
+    });
+
+    // 2. 合并用户站点
+    const allCatMap = new Map();
+    for (const [name, sites] of mappedDefaults.entries()) {
+      allCatMap.set(name, [...sites]);
+    }
     userSites.forEach((site) => {
-      const target = cats.find((c) => c.name === site.category);
-      if (target) {
-        target.sites.push(site);
-      } else {
-        if (!customMap.has(site.category)) {
-          customMap.set(site.category, { name: site.category, sites: [] });
-        }
-        customMap.get(site.category).sites.push(site);
+      const catName = site.category || NAV_QUICK_CATEGORY;
+      if (!allCatMap.has(catName)) {
+        allCatMap.set(catName, []);
+      }
+      allCatMap.get(catName).push(site);
+    });
+
+    // 3. 计算分类展示顺序
+    const existingCatNames = Array.from(allCatMap.keys());
+    let order = Array.isArray(categoryOrder) && categoryOrder.length > 0
+      ? [...categoryOrder]
+      : CONFIG.categories.map((c) => (categoryMap && categoryMap[c.name]) || c.name);
+
+    existingCatNames.forEach((n) => {
+      if (!order.includes(n)) {
+        order.push(n);
       }
     });
-    return [...cats, ...customMap.values()]
-      .map((c) => ({
-        name: c.name,
-        sites: c.sites
+
+    // 4. 生成分类区块,置顶优先
+    const result = [];
+    order.forEach((catName) => {
+      const sites = allCatMap.get(catName);
+      if (sites && sites.length > 0) {
+        const sortedSites = sites
           .map((s, i) => ({ s, i }))
           .sort((a, b) => ((b.s.pinned ? 1 : 0) - (a.s.pinned ? 1 : 0)) || (a.i - b.i))
-          .map((x) => x.s),
-      }))
-      .filter((c) => c.sites.length > 0);
+          .map((x) => x.s);
+        result.push({
+          name: catName,
+          sites: sortedSites,
+        });
+      }
+    });
+
+    return result;
   }
 
   /* 点击卡片时记录最近使用(仅扩展环境;含默认站点) */
@@ -470,7 +578,7 @@
     const card = document.createElement("a");
     card.className = "site-card";
     card.href = site.url;
-    card.target = "_blank";
+    card.target = "_self";
     card.rel = "noopener noreferrer";
 
     let domain = "";
@@ -587,6 +695,8 @@
   function buildSection(title, sites, opts) {
     const section = document.createElement("section");
     section.className = "category-section";
+    section.dataset.catName = title;
+    section.id = "cat-sec-" + encodeURIComponent(title);
     if (opts && opts.recent) section.dataset.recent = "1";
 
     const header = document.createElement("div");
@@ -605,6 +715,78 @@
     return section;
   }
 
+  function renderSideNav(mergedCats) {
+    if (!sideCategoryNav) return;
+    sideCategoryNav.innerHTML = "";
+    const list = mergedCats || [];
+    if (list.length <= 1) {
+      sideCategoryNav.hidden = true;
+      return;
+    }
+    sideCategoryNav.hidden = false;
+
+    list.forEach((cat) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "side-nav-item";
+      btn.dataset.cat = cat.name;
+      btn.title = `跳转到 ${cat.name}`;
+      btn.textContent = cat.name;
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        const sec = document.querySelector(`.category-section[data-cat-name="${CSS.escape(cat.name)}"]`);
+        if (sec) {
+          sec.scrollIntoView({ behavior: "smooth", block: "start" });
+          setActiveSideNavItem(cat.name);
+        }
+      });
+      sideCategoryNav.appendChild(btn);
+    });
+
+    onScrollUpdateActiveSideNav();
+  }
+
+  function setActiveSideNavItem(catName) {
+    if (!sideCategoryNav) return;
+    const items = sideCategoryNav.querySelectorAll(".side-nav-item");
+    items.forEach((item) => {
+      const match = item.dataset.cat === catName;
+      item.classList.toggle("active", match);
+      if (match) {
+        item.setAttribute("aria-current", "true");
+      } else {
+        item.removeAttribute("aria-current");
+      }
+    });
+  }
+
+  let scrollTimer = null;
+  function onScrollUpdateActiveSideNav() {
+    if (!sideCategoryNav || sideCategoryNav.hidden) return;
+    const sections = Array.from(categoriesContainer.querySelectorAll(".category-section:not(.hidden)"));
+    if (!sections.length) return;
+    let currentCat = null;
+    for (const sec of sections) {
+      const top = sec.getBoundingClientRect().top;
+      if (top <= 160) {
+        currentCat = sec.dataset.catName;
+      } else {
+        break;
+      }
+    }
+    if (!currentCat && sections[0]) {
+      currentCat = sections[0].dataset.catName;
+    }
+    if (currentCat) {
+      setActiveSideNavItem(currentCat);
+    }
+  }
+
+  window.addEventListener("scroll", () => {
+    if (scrollTimer) cancelAnimationFrame(scrollTimer);
+    scrollTimer = requestAnimationFrame(onScrollUpdateActiveSideNav);
+  }, { passive: true });
+
   function renderCategories() {
     categoriesContainer.innerHTML = "";
 
@@ -617,10 +799,12 @@
       }
     }
 
-    getMergedCategories().forEach((cat) => {
+    const merged = getMergedCategories();
+    merged.forEach((cat) => {
       categoriesContainer.appendChild(buildSection(cat.name, cat.sites));
     });
 
+    renderSideNav(merged);
     applyFilter();
   }
 
@@ -690,7 +874,7 @@
   let deleteTimer = null;
 
   function fillCategoryOptions(selected) {
-    const names = [...CONFIG.categories.map((c) => c.name), ...getCustomCategoryNames()];
+    const names = getAllCategoryNames();
     const seen = new Set();
     mCategory.innerHTML = "";
     names.forEach((n) => {
@@ -710,7 +894,8 @@
     const lastCat = localStorage.getItem("nav-last-cat");
     const target = (selected && seen.has(selected) && selected)
       || (lastCat && seen.has(lastCat) && lastCat)
-      || (CONFIG.categories[0] && CONFIG.categories[0].name);
+      || (names[0])
+      || NEW_CAT;
     mCategory.value = target || NEW_CAT;
     mNewCat.classList.toggle("show", mCategory.value === NEW_CAT);
   }
@@ -896,10 +1081,13 @@
 
   function restoreDefaults() {
     hiddenDefaults = [];
-    storageSet({ [NAV_HIDDEN_KEY]: hiddenDefaults });
-    renderCategories();
-    closeSettingsDropdown();
-    toast("已恢复全部默认卡片");
+    categoryOrder = CONFIG.categories.map((c) => c.name);
+    categoryMap = {};
+    saveAllCategoryState().then(() => {
+      renderCategories();
+      closeSettingsDropdown();
+      toast("已恢复全部默认卡片与分类");
+    });
   }
 
   // ------------------------------------------------------------------------
@@ -931,12 +1119,14 @@
 
   addBtn.addEventListener("click", () => openSiteModal("add"));
 
-  // 导出:全部用户站点(含账号备注)为 JSON 备份
+  // 导出:全部用户站点(含账号备注)与分类配置为 JSON 备份
   document.getElementById("exportBtn").addEventListener("click", () => {
     const payload = {
       app: "nav-guide",
-      version: 1,
+      version: 2,
       exportedAt: new Date().toISOString(),
+      categoryOrder,
+      categoryMap,
       sites: userSites,
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
@@ -951,10 +1141,10 @@
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     closeSettingsDropdown();
-    toast(`已导出 ${userSites.length} 条站点数据`);
+    toast(`已导出 ${userSites.length} 条站点及分类数据`);
   });
 
-  // 导入:与现有数据按规范化 URL 合并(同址更新,新址追加)
+  // 导入:与现有数据按规范化 URL 合并(同址更新,新址追加),同步分类排序配置
   importFile.addEventListener("change", async () => {
     const file = importFile.files && importFile.files[0];
     importFile.value = "";
@@ -963,6 +1153,13 @@
       const data = JSON.parse(await file.text());
       const list = Array.isArray(data) ? data : (data && Array.isArray(data.sites) ? data.sites : null);
       if (!list) throw new Error("bad format");
+
+      if (Array.isArray(data.categoryOrder) && data.categoryOrder.length > 0) {
+        categoryOrder = data.categoryOrder;
+      }
+      if (data.categoryMap && typeof data.categoryMap === "object") {
+        categoryMap = { ...categoryMap, ...data.categoryMap };
+      }
 
       let added = 0;
       let updated = 0;
@@ -997,7 +1194,7 @@
         }
       });
 
-      saveUserSites().then(renderCategories);
+      saveAllCategoryState().then(renderCategories);
       closeSettingsDropdown();
       toast(`导入完成：新增 ${added}，更新 ${updated}${skipped ? `，跳过 ${skipped}` : ""}`);
     } catch (e) {
@@ -1019,38 +1216,89 @@
   }
 
   // ------------------------------------------------------------------------
-  // 11. 分类管理模态框:自定义分类重命名/合并/删除
+  // 11. 分类管理模态框:所有分类(内置/自定义)排序/重命名/删除/添加
   // ------------------------------------------------------------------------
   const catModal = document.getElementById("catModal");
   const catList = document.getElementById("catList");
+  const catAddInput = document.getElementById("catAddInput");
+  const catAddBtn = document.getElementById("catAddBtn");
+  const catResetBtn = document.getElementById("catResetBtn");
+  let draggedCatIndex = null;
 
   function buildCatRows() {
     catList.innerHTML = "";
-    const names = getCustomCategoryNames();
+    const names = getAllCategoryNames();
     if (!names.length) {
       const empty = document.createElement("div");
       empty.className = "cat-empty";
-      empty.textContent = "暂无自定义分类（在收藏时选择「＋ 新建分类…」即可创建）";
+      empty.textContent = "暂无分类";
       catList.appendChild(empty);
       return;
     }
 
-    names.forEach((name) => {
-      const count = userSites.filter((s) => s.category === name).length;
+    const merged = getMergedCategories();
+    const siteCountMap = new Map();
+    merged.forEach((c) => siteCountMap.set(c.name, c.sites.length));
+
+    names.forEach((name, index) => {
+      const count = siteCountMap.get(name) || 0;
       const row = document.createElement("div");
       row.className = "cat-row";
+      row.draggable = true;
+      row.dataset.index = String(index);
+      row.dataset.catName = name;
 
+      // 拖拽手柄
+      const handle = document.createElement("span");
+      handle.className = "cat-drag-handle";
+      handle.textContent = "⠿";
+      handle.title = "按住拖拽排序";
+      handle.setAttribute("aria-label", "拖拽排序");
+
+      // 排序微调按钮组 (▲ / ▼)
+      const reorderBtns = document.createElement("div");
+      reorderBtns.className = "cat-reorder-btns";
+
+      const upBtn = document.createElement("button");
+      upBtn.type = "button";
+      upBtn.className = "cat-order-btn cat-up-btn";
+      upBtn.textContent = "▲";
+      upBtn.title = "上移";
+      upBtn.disabled = index === 0;
+      upBtn.addEventListener("click", () => moveCategory(index, -1));
+
+      const downBtn = document.createElement("button");
+      downBtn.type = "button";
+      downBtn.className = "cat-order-btn cat-down-btn";
+      downBtn.textContent = "▼";
+      downBtn.title = "下移";
+      downBtn.disabled = index === names.length - 1;
+      downBtn.addEventListener("click", () => moveCategory(index, 1));
+
+      reorderBtns.appendChild(upBtn);
+      reorderBtns.appendChild(downBtn);
+
+      // 分类名称输入框 (支持重命名)
       const input = document.createElement("input");
       input.type = "text";
       input.className = "cat-name-input";
       input.value = name;
       input.maxLength = 20;
       input.setAttribute("aria-label", `重命名分类 ${name}`);
+      input.addEventListener("change", () => renameCategory(name, input.value));
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          input.blur();
+        }
+      });
 
+      // 站点计数
       const countEl = document.createElement("span");
       countEl.className = "cat-count";
       countEl.textContent = `${count} 个站点`;
 
+      // 删除按钮
       const delBtn = document.createElement("button");
       delBtn.type = "button";
       delBtn.className = "btn-danger cat-del";
@@ -1070,11 +1318,52 @@
           return;
         }
         clearTimeout(timer);
-        moveCategorySites(name);
+        deleteCategory(name);
       });
 
-      input.addEventListener("change", () => renameCategory(name, input.value));
+      // Drag & Drop 事件
+      row.addEventListener("dragstart", (e) => {
+        draggedCatIndex = index;
+        row.classList.add("dragging");
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", String(index));
+      });
 
+      row.addEventListener("dragend", () => {
+        row.classList.remove("dragging");
+        catList.querySelectorAll(".cat-row").forEach((r) => {
+          r.classList.remove("drag-over-top", "drag-over-bottom");
+        });
+        draggedCatIndex = null;
+      });
+
+      row.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        const rect = row.getBoundingClientRect();
+        const midY = rect.top + rect.height / 2;
+        if (e.clientY < midY) {
+          row.classList.add("drag-over-top");
+          row.classList.remove("drag-over-bottom");
+        } else {
+          row.classList.add("drag-over-bottom");
+          row.classList.remove("drag-over-top");
+        }
+      });
+
+      row.addEventListener("dragleave", () => {
+        row.classList.remove("drag-over-top", "drag-over-bottom");
+      });
+
+      row.addEventListener("drop", (e) => {
+        e.preventDefault();
+        row.classList.remove("drag-over-top", "drag-over-bottom");
+        if (draggedCatIndex === null || draggedCatIndex === index) return;
+        reorderCategories(draggedCatIndex, index);
+      });
+
+      row.appendChild(handle);
+      row.appendChild(reorderBtns);
       row.appendChild(input);
       row.appendChild(countEl);
       row.appendChild(delBtn);
@@ -1082,27 +1371,161 @@
     });
   }
 
+  function moveCategory(fromIdx, offset) {
+    const names = getAllCategoryNames();
+    const toIdx = fromIdx + offset;
+    if (toIdx < 0 || toIdx >= names.length) return;
+    const item = names.splice(fromIdx, 1)[0];
+    names.splice(toIdx, 0, item);
+    categoryOrder = names;
+    saveCategoryState().then(() => {
+      renderCategories();
+      buildCatRows();
+    });
+  }
+
+  function reorderCategories(fromIdx, toIdx) {
+    const names = getAllCategoryNames();
+    if (fromIdx < 0 || fromIdx >= names.length || toIdx < 0 || toIdx >= names.length) return;
+    const item = names.splice(fromIdx, 1)[0];
+    names.splice(toIdx, 0, item);
+    categoryOrder = names;
+    saveCategoryState().then(() => {
+      renderCategories();
+      buildCatRows();
+    });
+  }
+
   function renameCategory(oldName, newValue) {
     const nv = String(newValue || "").trim();
     if (!nv || nv === oldName) {
-      buildCatRows(); // 空值还原显示
+      buildCatRows();
       return;
     }
-    const exists = CONFIG.categories.some((c) => c.name === nv) || getCustomCategoryNames().includes(nv);
+
+    const allNames = getAllCategoryNames();
+    const isMerge = allNames.some((n) => n === nv);
+
+    // 1. 更新 userSites
     userSites.forEach((s) => {
       if (s.category === oldName) s.category = nv;
     });
-    saveUserSites().then(renderCategories);
-    toast(exists ? `已合并到「${nv}」` : `已重命名为「${nv}」`);
-    buildCatRows();
+
+    // 2. 更新 categoryMap (用于映射默认分类)
+    CONFIG.categories.forEach((c) => {
+      const currentName = (categoryMap && categoryMap[c.name]) || c.name;
+      if (currentName === oldName) {
+        if (!categoryMap) categoryMap = {};
+        categoryMap[c.name] = nv;
+      }
+    });
+
+    // 3. 更新 categoryOrder
+    if (!Array.isArray(categoryOrder) || categoryOrder.length === 0) {
+      categoryOrder = getAllCategoryNames();
+    }
+    const idx = categoryOrder.indexOf(oldName);
+    if (idx !== -1) {
+      categoryOrder[idx] = nv;
+    } else {
+      categoryOrder.push(nv);
+    }
+    // 去重保持唯一
+    categoryOrder = Array.from(new Set(categoryOrder));
+
+    saveAllCategoryState().then(() => {
+      renderCategories();
+      buildCatRows();
+      toast(isMerge ? `已合并到「${nv}」` : `已重命名为「${nv}」`);
+    });
   }
 
-  function moveCategorySites(name) {
-    const affected = userSites.filter((s) => s.category === name);
-    affected.forEach((s) => { s.category = NAV_QUICK_CATEGORY; });
-    saveUserSites().then(renderCategories);
-    toast(`已将 ${affected.length} 个站点移入「${NAV_QUICK_CATEGORY}」`);
-    buildCatRows();
+  function deleteCategory(catName) {
+    const hiddenSet = new Set(hiddenDefaults);
+    let movedCount = 0;
+
+    // 1. 移动用户自定义站点
+    userSites.forEach((s) => {
+      if (s.category === catName) {
+        s.category = NAV_QUICK_CATEGORY;
+        movedCount++;
+      }
+    });
+
+    // 2. 处理默认站点: 如果属于该分类且未隐藏,转为快速收藏用户站点并隐藏默认原站
+    CONFIG.categories.forEach((c) => {
+      const currentName = (categoryMap && categoryMap[c.name]) || c.name;
+      if (currentName === catName) {
+        c.sites.forEach((s) => {
+          const norm = navNormalizeUrl(s.url);
+          if (!hiddenSet.has(norm)) {
+            hiddenDefaults.push(norm);
+            userSites.push({
+              id: navSiteId(),
+              name: s.name,
+              url: s.url,
+              desc: s.desc || "",
+              account: "",
+              icon: s.icon || "",
+              category: NAV_QUICK_CATEGORY,
+              pinned: false,
+              addedAt: Date.now(),
+            });
+            movedCount++;
+          }
+        });
+      }
+    });
+
+    // 3. 从 categoryOrder 和 categoryMap 中移除
+    if (Array.isArray(categoryOrder)) {
+      categoryOrder = categoryOrder.filter((n) => n !== catName);
+      if (!categoryOrder.includes(NAV_QUICK_CATEGORY)) {
+        categoryOrder.push(NAV_QUICK_CATEGORY);
+      }
+    }
+    if (categoryMap) {
+      CONFIG.categories.forEach((c) => {
+        if ((categoryMap[c.name] || c.name) === catName) {
+          delete categoryMap[c.name];
+        }
+      });
+    }
+
+    saveAllCategoryState().then(() => {
+      renderCategories();
+      buildCatRows();
+      toast(`已删除分类「${catName}」，${movedCount} 个站点已移入「${NAV_QUICK_CATEGORY}」`);
+    });
+  }
+
+  function addCategory(name) {
+    const n = String(name || "").trim();
+    if (!n) return;
+    const allNames = getAllCategoryNames();
+    if (allNames.includes(n)) {
+      toast(`分类「${n}」已存在`);
+      return;
+    }
+    if (!Array.isArray(categoryOrder) || categoryOrder.length === 0) {
+      categoryOrder = getAllCategoryNames();
+    }
+    categoryOrder.push(n);
+    saveCategoryState().then(() => {
+      renderCategories();
+      buildCatRows();
+      toast(`已创建分类「${n}」`);
+    });
+  }
+
+  function resetDefaultCategories() {
+    categoryOrder = CONFIG.categories.map((c) => c.name);
+    categoryMap = {};
+    saveCategoryState().then(() => {
+      renderCategories();
+      buildCatRows();
+      toast("已恢复默认分类排序与名称");
+    });
   }
 
   function openCatModal() {
@@ -1120,6 +1543,30 @@
     catModal.addEventListener("click", (e) => {
       if (e.target === catModal) closeCatModal();
     });
+
+    if (catAddBtn && catAddInput) {
+      catAddBtn.addEventListener("click", () => {
+        const val = catAddInput.value.trim();
+        if (val) {
+          addCategory(val);
+          catAddInput.value = "";
+        }
+      });
+      catAddInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          const val = catAddInput.value.trim();
+          if (val) {
+            addCategory(val);
+            catAddInput.value = "";
+          }
+        }
+      });
+    }
+
+    if (catResetBtn) {
+      catResetBtn.addEventListener("click", resetDefaultCategories);
+    }
   }
 
   // ------------------------------------------------------------------------

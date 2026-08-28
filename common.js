@@ -7,6 +7,8 @@
 const NAV_STORAGE_KEY = "navSites";          // chrome.storage.local 键:用户站点数组
 const NAV_HIDDEN_KEY = "navHiddenDefaults";  // chrome.storage.local 键:已隐藏的默认站点(normalized url 数组)
 const NAV_RECENT_KEY = "navRecent";          // chrome.storage.local 键:最近使用记录 [{url,name,at}]
+const NAV_CAT_ORDER_KEY = "navCategoryOrder"; // chrome.storage 键:分类名称及顺序数组
+const NAV_CAT_MAP_KEY = "navCategoryMap";     // chrome.storage 键:默认分类重命名映射 { "原分类名": "新分类名" }
 const NAV_QUICK_CATEGORY = "快速收藏";        // 右键快捷添加/分类删除时的默认归属分类
 
 const CONFIG = {
