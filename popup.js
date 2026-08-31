@@ -216,6 +216,7 @@
         category,
         pinned: editing ? !!editing.pinned : false,
         addedAt: editing ? editing.addedAt : Date.now(),
+        updatedAt: Date.now(),
       };
 
       let next;

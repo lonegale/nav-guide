@@ -58,8 +58,9 @@ await p.setViewportSize({ width: 1280, height: 800 });
 await p.goto(`chrome-extension://${new URL(sw.url()).host}/index.html`);
 await p.waitForSelector(".site-card");
 await p.waitForTimeout(300);
-
-// 工具栏三按钮可见、不重叠、右对齐
+if (await p.locator("#cloudModal.open").count() > 0) {
+  await p.keyboard.press("Escape");
+}
 r = await p.evaluate(() => {
   const ids = ["addBtn", "settingsBtn", "themeBtn"];
   const boxes = ids.map((i) => document.getElementById(i).getBoundingClientRect());

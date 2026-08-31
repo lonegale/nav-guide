@@ -445,7 +445,268 @@
     return [...names];
   }
 
-  /* 扩展环境下,其他入口(popup / 右键菜单 / 其他设备 Google Sync)写入后即时刷新本页,并对外部新增给出 toast 反馈 */
+  // ------------------------------------------------------------------------
+  // 5.5 云同步编排(仅扩展环境且已配置 OAuth 客户端时启用)
+  //     策略:本地任何写变更后防抖 3s 上传;每 5 分钟拉取远端;手动「立即同步」。
+  //     回写本地走 navStorage.set → storage.onChanged → 重渲染,与 popup/右键同路径。
+  // ------------------------------------------------------------------------
+  const cloudModal = document.getElementById("cloudModal");
+  const cloudModalTitle = document.getElementById("cloudModalTitle");
+  const cloudSyncBtn = document.getElementById("cloudSyncBtn");
+  const cloudStatusEl = document.getElementById("cloudStatus");
+  const cloudTokenGroup = document.getElementById("cloudTokenGroup");
+  const cloudTokenInput = document.getElementById("cloudTokenInput");
+  const cloudToggleTokenVisibility = document.getElementById("cloudToggleTokenVisibility");
+  const cloudConnectedInfo = document.getElementById("cloudConnectedInfo");
+  const cloudGistLink = document.getElementById("cloudGistLink");
+  const cloudSaveBtn = document.getElementById("cloudSaveBtn");
+  const cloudSkipBtn = document.getElementById("cloudSkipBtn");
+  const cloudSyncNowBtn = document.getElementById("cloudSyncNowBtn");
+  const cloudLogoutBtn = document.getElementById("cloudLogoutBtn");
+
+  const CLOUD_PULL_INTERVAL = 5 * 60 * 1000; // 远端拉取周期 (5分钟)
+  const CLOUD_UPLOAD_DEBOUNCE = 3000;        // 本地变更后防抖上传 (3秒)
+  let cloudLoggedIn = false;
+  let cloudSyncing = false;       // 单飞行锁:防止上传回写再触发上传的循环
+  let cloudCurrentUser = "";
+  let cloudGistUrl = "";
+  let cloudUploadTimer = null;
+  let cloudPullTimer = null;
+
+  /* 收集当前本地数据快照(合并的输入) */
+  function cloudLocalData() {
+    return {
+      sites: userSites,
+      hiddenDefaults,
+      categoryOrder,
+      categoryMap,
+    };
+  }
+
+  /* 同步结果回写本地存储(不直接改内存变量,统一走 onChanged 通路) */
+  async function cloudApplyMerged(merged) {
+    await storageSet({
+      [NAV_STORAGE_KEY]: merged.sites,
+      [NAV_HIDDEN_KEY]: merged.hiddenDefaults,
+      [NAV_CAT_ORDER_KEY]: merged.categoryOrder,
+      [NAV_CAT_MAP_KEY]: merged.categoryMap,
+    });
+  }
+
+  function updateCloudStatus(state, extra) {
+    if (!cloudStatusEl) return;
+    if (state === "idle") {
+      if (cloudModalTitle) cloudModalTitle.textContent = "云同步 (GitHub Gist)";
+      cloudStatusEl.className = "cloud-status status-connected";
+      cloudStatusEl.textContent = "✓ 已连接 GitHub · " + (cloudCurrentUser ? "@" + cloudCurrentUser : "已授权") + " (自动双向同步中)";
+      if (cloudTokenGroup) cloudTokenGroup.hidden = true;
+      if (cloudConnectedInfo) cloudConnectedInfo.hidden = false;
+      if (cloudLogoutBtn) cloudLogoutBtn.hidden = false;
+      if (cloudSkipBtn) cloudSkipBtn.hidden = true;
+      if (cloudSaveBtn) cloudSaveBtn.hidden = true;
+      if (cloudSyncNowBtn) {
+        cloudSyncNowBtn.hidden = false;
+        cloudSyncNowBtn.disabled = false;
+      }
+      if (cloudGistLink) {
+        if (cloudGistUrl) {
+          cloudGistLink.href = cloudGistUrl;
+          cloudGistLink.hidden = false;
+        } else {
+          cloudGistLink.hidden = true;
+        }
+      }
+    } else if (state === "syncing") {
+      cloudStatusEl.className = "cloud-status status-syncing";
+      cloudStatusEl.textContent = "⟳ 正在连接 GitHub 并同步数据…";
+      if (cloudSyncNowBtn) cloudSyncNowBtn.disabled = true;
+      if (cloudSaveBtn) cloudSaveBtn.disabled = true;
+    } else if (state === "loggedOut") {
+      if (cloudModalTitle) cloudModalTitle.textContent = "首次使用配置 (GitHub Gist)";
+      cloudStatusEl.className = "cloud-status";
+      cloudStatusEl.textContent = "尚未配置云同步。推荐配置 GitHub Token 开启多设备自动双向同步与防丢云备份。";
+      if (cloudTokenGroup) cloudTokenGroup.hidden = false;
+      if (cloudConnectedInfo) cloudConnectedInfo.hidden = true;
+      if (cloudLogoutBtn) cloudLogoutBtn.hidden = true;
+      if (cloudSkipBtn) cloudSkipBtn.hidden = false;
+      if (cloudSaveBtn) {
+        cloudSaveBtn.hidden = false;
+        cloudSaveBtn.disabled = false;
+      }
+      if (cloudSyncNowBtn) cloudSyncNowBtn.hidden = true;
+      if (cloudGistLink) cloudGistLink.hidden = true;
+    } else if (state === "error") {
+      cloudStatusEl.className = "cloud-status status-error";
+      cloudStatusEl.textContent = extra || "同步失败，请检查 Token 或网络";
+      if (cloudSyncNowBtn) cloudSyncNowBtn.disabled = false;
+      if (cloudSaveBtn) cloudSaveBtn.disabled = false;
+    }
+  }
+
+  /* 执行一轮同步;manual=true 时给出更明确的 toast 反馈 */
+  async function cloudRunSync(manual) {
+    if (!cloudLoggedIn || cloudSyncing) return;
+    cloudSyncing = true;
+    updateCloudStatus("syncing");
+    try {
+      const result = await navCloud.runSync(cloudLocalData());
+      if (result.htmlUrl) cloudGistUrl = result.htmlUrl;
+      if (result.localChanged) await cloudApplyMerged(result.merged);
+      updateCloudStatus("idle");
+      if (manual) {
+        toast(result.uploaded
+          ? `云同步完成：GitHub Gist 已更新（${result.merged.sites.length} 条站点）`
+          : `云同步完成：本地已与 Gist 一致（${result.merged.sites.length} 条站点）`);
+      }
+    } catch (e) {
+      if (e && e.code === "NOT_LOGGED_IN") {
+        cloudLoggedIn = false;
+        updateCloudStatus("loggedOut");
+        if (manual) toast("云同步：Token 已失效，请重新配置");
+      } else if (manual) {
+        const msg = e && e.code === "NETWORK_ERROR" ? "GitHub 连接超时或网络不可用" : "云同步失败：服务暂不可用";
+        toast(msg);
+        updateCloudStatus("error", msg);
+      } else {
+        updateCloudStatus("idle");
+      }
+    } finally {
+      cloudSyncing = false;
+      if (cloudLoggedIn) updateCloudStatus("idle");
+    }
+  }
+
+  /* 本地数据变更 → 防抖上传(由 storage.onChanged 驱动,自身回写因飞行锁被忽略) */
+  function cloudScheduleUpload() {
+    if (!cloudLoggedIn) return;
+    clearTimeout(cloudUploadTimer);
+    cloudUploadTimer = setTimeout(() => cloudRunSync(false), CLOUD_UPLOAD_DEBOUNCE);
+  }
+
+  async function cloudInit() {
+    if (!IS_EXT || !navCloud || !navCloud.configured) return;
+
+    if (cloudSyncBtn) cloudSyncBtn.hidden = false;
+
+    const auth = await navCloudAuth.load();
+    if (auth && auth.token) {
+      cloudLoggedIn = true;
+      cloudCurrentUser = auth.user || "";
+      cloudGistUrl = auth.htmlUrl || "";
+      updateCloudStatus("idle");
+      cloudRunSync(false); // 打开页面即拉取一轮
+      cloudPullTimer = setInterval(() => cloudRunSync(false), CLOUD_PULL_INTERVAL);
+    } else {
+      updateCloudStatus("loggedOut");
+      // 未配置时在界面自动弹出配置窗口，引导用户优先配置 Token
+      openCloudModal();
+    }
+  }
+
+  function openCloudModal() {
+    closeSettingsDropdown();
+    updateCloudStatus(cloudLoggedIn ? "idle" : "loggedOut");
+    if (cloudModal) cloudModal.classList.add("open");
+  }
+
+  function closeCloudModal() {
+    if (cloudModal) cloudModal.classList.remove("open");
+  }
+
+  if (cloudSyncBtn) cloudSyncBtn.addEventListener("click", openCloudModal);
+
+  if (cloudSaveBtn) {
+    cloudSaveBtn.addEventListener("click", async () => {
+      const token = (cloudTokenInput ? cloudTokenInput.value : "").trim();
+      if (!token) {
+        updateCloudStatus("error", "请输入 GitHub Personal Access Token");
+        return;
+      }
+      cloudSaveBtn.disabled = true;
+      cloudSaveBtn.textContent = "验证中…";
+      updateCloudStatus("syncing");
+      try {
+        const userInfo = await navCloudAuth.validateToken(token);
+        cloudCurrentUser = userInfo.user;
+        await navCloudAuth.save({ token, user: userInfo.user });
+        cloudLoggedIn = true;
+        cloudSaveBtn.textContent = "保存并开启同步";
+        cloudSaveBtn.disabled = false;
+        if (cloudTokenInput) cloudTokenInput.value = "";
+        if (!cloudPullTimer) {
+          cloudPullTimer = setInterval(() => cloudRunSync(false), CLOUD_PULL_INTERVAL);
+        }
+        await cloudRunSync(true);
+        renderCategories();
+      } catch (e) {
+        cloudSaveBtn.textContent = "保存并开启同步";
+        cloudSaveBtn.disabled = false;
+        if (e.code === "INVALID_TOKEN") {
+          updateCloudStatus("error", "Token 无效或已过期，请重新创建");
+        } else if (e.code === "NETWORK_ERROR") {
+          updateCloudStatus("error", "连接 GitHub 失败，请检查网络");
+        } else {
+          updateCloudStatus("error", "验证失败: " + (e.message || "未知错误"));
+        }
+      }
+    });
+  }
+
+  if (cloudSkipBtn) {
+    cloudSkipBtn.addEventListener("click", () => {
+      closeCloudModal();
+      toast("已进入离线模式。数据保存在本机，可随时在右上角 ⚙️ 设置中开启云同步。");
+    });
+  }
+
+  if (cloudToggleTokenVisibility) {
+    cloudToggleTokenVisibility.addEventListener("click", () => {
+      if (!cloudTokenInput) return;
+      if (cloudTokenInput.type === "password") {
+        cloudTokenInput.type = "text";
+        cloudToggleTokenVisibility.textContent = "🔒";
+      } else {
+        cloudTokenInput.type = "password";
+        cloudToggleTokenVisibility.textContent = "👁";
+      }
+    });
+  }
+
+  if (cloudSyncNowBtn) {
+    cloudSyncNowBtn.addEventListener("click", async () => {
+      if (cloudSyncing || !cloudLoggedIn) return;
+      await cloudRunSync(true);
+    });
+  }
+
+  if (cloudLogoutBtn) {
+    cloudLogoutBtn.addEventListener("click", async () => {
+      if (!cloudLoggedIn) { closeCloudModal(); return; }
+      cloudLogoutBtn.textContent = "断开中…";
+      cloudLogoutBtn.disabled = true;
+      await navCloudAuth.clear();
+      cloudLogoutBtn.textContent = "断开连接";
+      cloudLogoutBtn.disabled = false;
+      cloudLoggedIn = false;
+      cloudCurrentUser = "";
+      cloudGistUrl = "";
+      clearTimeout(cloudUploadTimer);
+      clearInterval(cloudPullTimer);
+      cloudPullTimer = null;
+      updateCloudStatus("loggedOut");
+      toast("已断开 GitHub 云同步（本地数据保留）");
+    });
+  }
+
+  if (cloudModal) {
+    cloudModal.querySelector(".modal-close").addEventListener("click", closeCloudModal);
+    cloudModal.querySelector(".modal-cancel")?.addEventListener("click", closeCloudModal);
+    cloudModal.addEventListener("click", (e) => {
+      if (e.target === cloudModal) closeCloudModal();
+    });
+  }
+
+  /* 扩展环境下,其他入口(popup / 右键菜单 / 云同步)写入后即时刷新本页,并对外部新增给出 toast 反馈 */
   if (IS_EXT && chrome.storage && chrome.storage.onChanged) {
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== "local" && area !== "sync") return;
@@ -496,6 +757,13 @@
       }
 
       if (needRender) renderCategories();
+
+      // 本地数据被任一入口改动(popup/右键/本页) → 防抖上传云端;
+      // 云同步自身回写时 cloudSyncing 为真,跳过以免循环
+      if (!cloudSyncing && (changes[NAV_STORAGE_KEY] || changes[NAV_HIDDEN_KEY] ||
+          changes[NAV_CAT_ORDER_KEY] || changes[NAV_CAT_MAP_KEY])) {
+        cloudScheduleUpload();
+      }
     });
   }
 
@@ -984,6 +1252,7 @@
         category,
         // 网址变了就丢弃旧 favicon,改按新域名自动获取
         icon: urlChanged ? "" : site.icon,
+        updatedAt: Date.now(),
       });
     } else {
       userSites.push({
@@ -996,6 +1265,7 @@
         category,
         pinned: false,
         addedAt: Date.now(),
+        updatedAt: Date.now(),
       });
     }
 
@@ -1596,13 +1866,17 @@
       closeSettingsDropdown();
       if (editModal && editModal.classList.contains("open")) closeSiteModal();
       if (catModal && catModal.classList.contains("open")) closeCatModal();
+      if (cloudModal && cloudModal.classList.contains("open")) closeCloudModal();
     }
   });
 
   // ------------------------------------------------------------------------
   // 13. Initial Render
   // ------------------------------------------------------------------------
-  loadAll().then(renderCategories);
+  loadAll().then(() => {
+    renderCategories();
+    cloudInit();
+  });
 
   // Auto-focus search input on initial page load
   window.addEventListener("DOMContentLoaded", () => {

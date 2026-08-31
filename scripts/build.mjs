@@ -33,6 +33,7 @@ const RUNTIME_FILES = [
   "manifest.json",
   "background.js",
   "common.js",
+  "cloud.js",
   "index.html",
   "index.js",
   "popup.html",

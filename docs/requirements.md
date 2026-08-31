@@ -248,10 +248,47 @@ const CONFIG = {
    - 支持对任意分类进行重命名（同步更新对应站点，同名自动合并）；
    - 支持删除分类（分类删除后其下站点自动移入「快速收藏」）；
    - 支持直接新建分类与一键「恢复默认分类」；
-   - 新增存储键 `navCategoryOrder`（分类排序数组）与 `navCategoryMap`（默认分类重命名映射），由 `navStorage` 自动双写并支持 Google Sync 多端云同步。
+   - 新增存储键 `navCategoryOrder`（分类排序数组）与 `navCategoryMap`（默认分类重命名映射），由 `navStorage` 统一读写 `chrome.storage`（注：`chrome.storage.sync` 已被 Chrome 弃用，现为 local 的别名，不再提供跨设备云同步）。
 
-## 2. 自动化验收（85 项断言全通过）
-- 功能 74 项（含左侧悬浮导航联动、target _self、全量分类排序/重命名/删除/新建/恢复）
+## 2. 自动化验收（86 项断言全通过）
+- 功能 75 项（含左侧悬浮导航联动、target _self、全量分类排序/重命名/删除/新建/恢复；其中原「Google Sync 云同步」相关断言仅验证 storage 读写行为，不再代表真实云同步）
 - 布局 11 项（含桌面宽屏侧边栏定位、移动端自适应隐藏等）
 
 
+
+---
+
+# v1.4 增补 — GitHub Gist 云同步（2026-08-31）
+
+## 1. 背景
+
+`chrome.storage.sync` 已被 Chrome 官方弃用（Chrome 139 起停止云端同步，141 起云端与本地遗留数据被移除，API 退化为 `storage.local` 的别名）。原宣传的「Google 账号原生云同步」实际已失效：卸载扩展即清空本机存储且无处恢复。v1.4 以 **GitHub Gist（Secret Gist + Personal Access Token）** 重建云同步，零后端、零运维、零 GCP 项目门槛，数据存于用户 GitHub 账号下的私有 Secret Gist，天然支持 Git 提交历史版本回滚。
+
+## 2. 核心设计
+
+1. **`cloud.js` 共享层**：
+   - `navCloudAuth`：GitHub PAT 凭据管理与校验（`validateToken` 校验 `GET /user`，提取用户名与有效性）；
+   - `navCloud`：GitHub Gist REST API 客户端（`findOrCreateGist` 智能查找或创建 Secret Gist、`download` 拉取、`upload` PATCH 增量更新），`runSync()` 单轮同步编排；
+   - `navCloudMerge`：**三方合并纯函数**（本地 / 云端 / 上次同步基线）：
+     - 站点合并键为 `id`（历史无 id 数据退化为规范化 URL）；
+     - 删除传播：一端缺失且基线存在同款 → 判定为删除；**修改胜过删除**（基线与存在端不同 → 保留）；
+     - 双端冲突按站点 `updatedAt` 新者胜（旧数据无该字段退化为 `addedAt`）；
+     - 分类配置（`categoryOrder`/`categoryMap`/`navHiddenDefaults`）按「哪端相对基线有变化取哪端」合并；
+     - 记录级归一化（字段截断 60/80/500、非法 URL 滤除）。
+2. **同步策略（index.js 编排）**：本地任一入口写变更 → 防抖 3s 上传；每 5 分钟拉取远端；新标签页打开即拉取一轮。回写本地统一走 `navStorage.set → storage.onChanged → 重渲染`，与 popup/右键同路径；单飞行锁（`cloudSyncing`）防止同步回写再触发上传的循环。
+3. **存储键新增**：`navGistToken`（PAT 凭据）、`navGistId`（Gist ID）、`navGistUser`（用户名）、`navCloudState`（上次同步基线）。站点记录新增 `updatedAt` 字段（popup/编辑/新增路径均写入）。
+4. **UI**：设置菜单「云同步」入口 + 管理弹窗（Token 输入/明暗切换、一键前往 GitHub 创建 Token 快捷链接、已连接状态、在 GitHub 查看 Gist 链接、立即同步、断开连接）。
+5. **manifest**：移除 `identity` 权限与 Google 域名；新增 `https://api.github.com/*` host_permissions；版本 1.4.0。
+6. **配置**：用户仅需在 GitHub 生成一个带 `gist` 权限的 PAT 填入即可（约 1 分钟）。
+
+## 3. 数据安全与隐私
+
+- 使用 **Secret Gist**（隐藏私有，不出现在 GitHub 搜索和公开流）。
+- Token 仅需申请 `gist` 权限，不申请 `repo` 等敏感代码仓库权限。
+- 云同步失败不阻塞本地功能；未配置时完全不产生额外网络请求。
+
+## 4. 自动化验收（111 项断言全通过）
+
+- 功能 81 项（新增：GitHub Gist 云同步入口、弹窗开合、Token 输入与显隐、未配置状态文案、cloud 全局对象可用）
+- 布局 11 项（不变）
+- 云合并单测 19 项（`tests/cloud.test.mjs`：基础合并/首次同步/删除传播/修改胜过删除/冲突裁决/无 id 归并/字段截断/分类数组合并）

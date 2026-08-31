@@ -5,10 +5,12 @@
 ```bash
 npm install playwright-core        # 任意目录
 python3 -m http.server 8742 &      # 从项目根目录起本地服务(纯网页模式用)
-node tests/test.mjs                # 功能验收 59 项
-node tests/layout.mjs              # 布局断言 7 项
+node tests/test.mjs                # 功能验收 79 项
+node tests/layout.mjs              # 布局断言 11 项
+node tests/cloud.test.mjs          # 云同步合并逻辑单测 19 项(无需浏览器)
 ```
 
 - `test.mjs`：纯网页模式（file:// 等价）+ 真实扩展环境（加载本项目为未打包扩展）双环境
 - `layout.mjs`：溢出/对齐/居中/触屏规则
 - 注意：无头桌面 Chromium 恒报 `hover: hover`，触屏常显只能验证规则存在（注入法），真机复核为准
+- 注意：其中 C 节的「Google Sync」断言只验证 `chrome.storage.sync` 键的读写（该 API 已被 Chrome 弃用、现为 local 别名），不代表真实跨设备云同步

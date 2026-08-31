@@ -158,6 +158,26 @@ async function extensionMode() {
   ok(await page.locator(".site-hide-btn").count() === 24, "默认卡片各带 ✕ 隐藏按钮");
   ok((await page.locator(".site-edit-btn").count()) === 0, "默认卡片无编辑按钮");
 
+  /* ---- 云同步(GitHub Gist): 首次未配置自动弹出配置窗口，支持弹窗与配置 ---- */
+  ok(await page.evaluate(() => typeof navCloud === "object" && typeof navCloudMerge.mergeSites === "function"),
+     "cloud.js 全局对象(navCloud/navCloudMerge)可用");
+  ok(await page.locator("#cloudModal").evaluate((el) => el.classList.contains("open")), "首次未配置自动弹出云同步配置窗口");
+  ok((await page.textContent("#cloudStatus")).includes("尚未配置云同步"), "未配置状态提示文案正确");
+  ok(await page.locator("#cloudTokenInput").isVisible(), "Token 输入框可见");
+  ok(await page.locator("#cloudSaveBtn").isVisible(), "保存并开启同步按钮可见");
+  ok(await page.locator("#cloudSkipBtn").isVisible(), "暂不配置按钮可见");
+  await page.click("#cloudSkipBtn");
+  ok(await page.locator("#cloudModal").evaluate((el) => !el.classList.contains("open")), "点击暂不配置关闭配置弹窗");
+  ok(await page.locator("#toast").textContent() !== "", "跳过后 toast 提示离线模式");
+
+  // 随后从设置菜单手动重新打开
+  await page.click("#settingsBtn");
+  ok(await page.locator("#cloudSyncBtn").isVisible(), "扩展环境下云同步菜单项可见");
+  await page.click("#cloudSyncBtn");
+  ok(await page.locator("#cloudModal").evaluate((el) => el.classList.contains("open")), "云同步菜单重新打开同步弹窗");
+  await page.keyboard.press("Escape");
+  ok(await page.locator("#cloudModal").evaluate((el) => !el.classList.contains("open")), "Esc 关闭云同步弹窗");
+
   /* ---- 隐藏默认卡片 + 撤销 ---- */
   await page.locator(".site-card", { hasText: "GitHub" }).locator(".site-hide-btn").click();
   ok((await page.locator(".site-card").count()) === 23, "点击 ✕ 后 GitHub 卡片隐藏");
