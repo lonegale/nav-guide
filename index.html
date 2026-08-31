@@ -1013,6 +1013,140 @@
       gap: 5px;
     }
 
+    /* 云同步模态框定制 */
+    #cloudModal .modal-card {
+      max-width: 480px;
+      gap: 16px;
+    }
+
+    .cloud-status {
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--text-2);
+      min-height: 20px;
+      padding: 10px 14px;
+      border-radius: 12px;
+      background: var(--tag-bg);
+      border: 1px solid var(--glass-border);
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+
+    .cloud-status.status-connected {
+      color: #10b981;
+      background: rgba(16, 185, 129, 0.08);
+      border-color: rgba(16, 185, 129, 0.25);
+      font-weight: 500;
+    }
+
+    .cloud-status.status-error {
+      color: #ef4444;
+      background: rgba(239, 68, 68, 0.08);
+      border-color: rgba(239, 68, 68, 0.25);
+    }
+
+    .cloud-status.status-syncing {
+      color: var(--accent);
+      background: var(--accent-light);
+      border-color: var(--accent);
+    }
+
+    .cloud-token-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+    }
+
+    .cloud-token-row input {
+      flex: 1;
+      height: 42px;
+      font-family: inherit;
+      font-size: 13.5px;
+      padding: 0 14px;
+      border-radius: 12px;
+      background: var(--tag-bg);
+      border: 1px solid var(--glass-border);
+      color: var(--text-1);
+      outline: none;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .cloud-token-row input:focus {
+      border-color: var(--accent);
+      box-shadow: var(--accent-glow);
+    }
+
+    .cloud-token-toggle {
+      height: 42px;
+      width: 44px;
+      min-width: 44px;
+      border-radius: 12px;
+      border: 1px solid var(--glass-border);
+      background: var(--tag-bg);
+      color: var(--text-2);
+      cursor: pointer;
+      font-size: 15px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+    }
+
+    .cloud-token-toggle:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: var(--accent-light);
+    }
+
+    .cloud-helper-link {
+      margin-top: 6px;
+      font-size: 12.5px;
+    }
+
+    .cloud-helper-link a {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .cloud-helper-link a:hover {
+      text-decoration: underline;
+    }
+
+    .cloud-connected-info {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .cloud-gist-link-wrap {
+      font-size: 13px;
+    }
+
+    .cloud-gist-link-wrap a {
+      color: var(--accent);
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-weight: 600;
+    }
+
+    .cloud-gist-link-wrap a:hover {
+      text-decoration: underline;
+    }
+
+    .cloud-hint {
+      font-size: 12.5px;
+      line-height: 1.7;
+      color: var(--text-2);
+    }
+
     /* 搜索过滤无结果提示(默认 hidden 属性隐藏) */
     .no-result {
       display: flex;
@@ -1417,6 +1551,7 @@
         <button class="settings-option" id="importBtn" type="button">导入数据</button>
         <button class="settings-option" id="manageCatsBtn" type="button">分类管理</button>
         <button class="settings-option" id="restoreDefaultsBtn" type="button">恢复默认卡片</button>
+        <button class="settings-option" id="cloudSyncBtn" type="button" hidden>云同步</button>
       </div>
     </div>
 
@@ -1560,11 +1695,50 @@
     </div>
   </div>
 
+  <!-- 云同步模态框(GitHub Gist) -->
+  <div class="modal-overlay" id="cloudModal" role="dialog" aria-modal="true" aria-label="云同步">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3 id="cloudModalTitle">云同步 (GitHub Gist)</h3>
+        <button class="modal-close" aria-label="关闭">✕</button>
+      </div>
+
+      <div class="cloud-status" id="cloudStatus">尚未配置云同步。推荐配置 GitHub Token 开启多设备自动双向同步与防丢云备份。</div>
+
+      <div class="modal-field" id="cloudTokenGroup">
+        <span>GitHub Personal Access Token</span>
+        <div class="cloud-token-row">
+          <input type="password" id="cloudTokenInput" placeholder="请输入 Token (如 ghp_... 或 github_pat_...)" autocomplete="off" spellcheck="false">
+          <button type="button" class="cloud-token-toggle" id="cloudToggleTokenVisibility" title="切换明文显示">👁</button>
+        </div>
+        <div class="cloud-helper-link">
+          <a href="https://github.com/settings/tokens/new?scopes=gist&description=nav-guide" target="_blank" rel="noopener noreferrer">一键前往创建 GitHub Token (需勾选 gist 权限) ↗</a>
+        </div>
+      </div>
+
+      <div class="cloud-connected-info" id="cloudConnectedInfo" hidden>
+        <p class="cloud-hint">数据保存在你的 GitHub Secret Gist（私有隐藏），多设备使用同一 Token 即可自动双向同步。本地修改 3 秒自动上传，每 5 分钟自动拉取。</p>
+        <div class="cloud-gist-link-wrap">
+          <a id="cloudGistLink" href="#" target="_blank" rel="noopener noreferrer" hidden>在 GitHub 查看 Gist 数据及历史提交 ↗</a>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn-secondary" id="cloudLogoutBtn" type="button" hidden>断开连接</button>
+        <button class="btn-secondary" id="cloudSkipBtn" type="button">暂不配置 (离线使用)</button>
+        <span class="modal-spacer"></span>
+        <button class="btn-primary" id="cloudSaveBtn" type="button">保存并开启同步</button>
+        <button class="btn-primary" id="cloudSyncNowBtn" type="button" hidden>立即同步</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 底部轻提示 -->
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <!-- Shared Config & App Logic -->
   <script src="common.js"></script>
+  <script src="cloud.js"></script>
   <script src="index.js"></script>
 </body>
 </html>
