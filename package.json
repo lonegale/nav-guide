@@ -1,6 +1,6 @@
 {
   "name": "nav-guide",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "scripts": {
     "build": "node scripts/build.mjs",
     "test": "node tests/test.mjs && node tests/layout.mjs && node tests/cloud.test.mjs"
