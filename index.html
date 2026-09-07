@@ -562,12 +562,13 @@
 
     .site-grid {
       display: grid;
-      grid-template-columns: repeat(6, 1fr);
+      grid-template-columns: repeat(6, minmax(0, 1fr));
       gap: 10px 12px;
     }
 
     /* Individual Site Card (Compact & Harmonious) */
     .site-card {
+      min-width: 0;
       display: flex;
       align-items: center;
       gap: 9px;
@@ -766,10 +767,11 @@
         display: none;
       }
       .site-grid {
-        grid-template-columns: repeat(2, 1fr);
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 8px;
       }
       .site-card {
+        min-width: 0;
         height: 40px;
         padding: 0 8px;
         border-radius: 10px;
