@@ -16,5 +16,6 @@ dist/
 key.pem
 .temp-key.pem
 
-# Temporary files
+# Temporary and backup files
 /tmp/
+*backup*.json

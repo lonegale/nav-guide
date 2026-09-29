@@ -26,7 +26,7 @@ const loader = new Function(
   "module", "exports", "require",
   commonSrc + "\n" + cloudSrc + "\nreturn module.exports;"
 );
-const { navCloudMerge } = loader(module_, module_.exports, require);
+const { navCloudMerge, navCloud, navCloudAuth } = loader(module_, module_.exports, require);
 
 let pass = 0;
 let fail = 0;
@@ -175,6 +175,100 @@ section("E. 分类配置合并");
   );
   ok(mo["常用"] === "日常2" && mo["开发"] === "coding", "对象合并:各端改动键互不覆盖");
   void base;
+}
+
+/* ------------------------------------------------------------------ */
+section("F. 安全熔断与配额防御");
+
+{
+  // 1. 超大 Base64 图标过滤
+  const big = navCloudMerge.normalizeSite({
+    name: "big",
+    url: "https://big.com",
+    icon: "data:image/png;base64," + "A".repeat(5000),
+  });
+  ok(big.icon === "", "超大 Data URL (>2KB) 被自动清空,防 storage.sync 8KB 配额溢出");
+
+  const small = navCloudMerge.normalizeSite({
+    name: "small",
+    url: "https://small.com",
+    icon: "https://small.com/favicon.ico",
+  });
+  ok(small.icon === "https://small.com/favicon.ico", "标准 HTTP 图标正常保留");
+}
+
+{
+  // 2. 模拟 runSync 大批量误删熔断保护
+  const origDownload = navCloud.download;
+  const origLoadState = navCloud.loadState;
+  const origUpload = navCloud.upload;
+  const origSaveState = navCloud.saveState;
+
+  // 场景：本地 10 个站点，远程由于新建变为空，基线记录了 10 个站点
+  const localList = Array.from({ length: 10 }, (_, i) => site(`s${i}`, `https://s${i}.com`));
+  navCloud.download = async () => ({
+    gistId: "gist-new",
+    content: { sites: [], hiddenDefaults: [], categoryOrder: [], categoryMap: {} },
+    htmlUrl: "https://gist.github.com/new",
+  });
+  navCloud.loadState = async () => ({
+    gistId: "gist-old", // 跨 Gist 测试
+    sites: localList,
+    hiddenDefaults: [],
+    categoryOrder: [],
+    categoryMap: {},
+  });
+  let uploadedPayload = null;
+  navCloud.upload = async (payload) => { uploadedPayload = payload; return true; };
+  navCloud.saveState = async () => {};
+
+  await (async () => {
+    const res = await navCloud.runSync({
+      sites: localList,
+      hiddenDefaults: [],
+      categoryOrder: [],
+      categoryMap: {},
+    });
+    ok(res.merged.sites.length === 10, "大批量删除熔断：远程为空时拒绝清空本地 10 个站点");
+    ok(!res.localChanged, "大批量删除熔断：本地不发生破坏性回写");
+    ok(res.uploaded && uploadedPayload && uploadedPayload.sites.length === 10, "大批量删除熔断：将本地数据补写同步至新远端");
+  })();
+
+  // 恢复 mock
+  navCloud.download = origDownload;
+  navCloud.loadState = origLoadState;
+  navCloud.upload = origUpload;
+  navCloud.saveState = origSaveState;
+}
+
+{
+  // 3. findOrCreateGist 网络错误不应静默降级新建 Gist
+  const origApi = navCloud._api;
+  const origLoad = navCloudAuth.load;
+  navCloudAuth.load = async () => ({ token: "dummy-token", gistId: "dummy-gist-id" });
+
+  navCloud._api = async (path) => {
+    if (path.includes("dummy-gist-id")) {
+      const err = new Error("NETWORK_ERROR");
+      err.code = "NETWORK_ERROR";
+      throw err;
+    }
+    return { ok: true, json: async () => ({ files: {} }) };
+  };
+
+  await (async () => {
+    let threw = false;
+    try {
+      await navCloud.findOrCreateGist(null, "dummy-token");
+    } catch (e) {
+      threw = (e && e.code === "NETWORK_ERROR");
+    }
+    ok(threw, "校验已有 Gist 遇网络错误时中止抛出，绝不静默新建空白 Gist");
+  })();
+
+  // 恢复 mock
+  navCloud._api = origApi;
+  navCloudAuth.load = origLoad;
 }
 
 console.log(`\n===== cloud 合并测试: ${pass} 通过 / ${fail} 失败 =====`);

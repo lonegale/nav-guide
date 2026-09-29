@@ -61,7 +61,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     url: tab.url,
     desc: "",
     account: "",
-    icon: tab.favIconUrl || "",
+    icon: (tab.favIconUrl && (!tab.favIconUrl.startsWith("data:") || tab.favIconUrl.length <= 2048)) ? tab.favIconUrl : "",
     category: NAV_QUICK_CATEGORY,
     addedAt: Date.now(),
   });

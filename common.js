@@ -140,6 +140,43 @@ const navStorage = {
         continue;
       }
 
+      // 核心站点数据安全策略：防空 sync 覆灭非空 local
+      if (k === NAV_STORAGE_KEY) {
+        const localArr = Array.isArray(localRes[k]) ? localRes[k] : [];
+        const syncArr = Array.isArray(syncRes[k]) ? syncRes[k] : [];
+        if (localArr.length > 0 && syncArr.length === 0) {
+          // 本地有站点但云端为空：保留本地数据，触发向云端补写，绝对禁止清空本地！
+          result[k] = localArr;
+          needMigrateToSync[k] = localArr;
+        } else if (syncArr.length > 0 && localArr.length === 0) {
+          result[k] = syncArr;
+          if (this.hasLocal) chrome.storage.local.set({ [k]: syncArr });
+        } else if (syncArr.length > 0 && localArr.length > 0) {
+          // 两端均有：取更新时间最新端
+          const localMax = Math.max(...localArr.map((s) => s.updatedAt || s.addedAt || 0), 0);
+          const syncMax = Math.max(...syncArr.map((s) => s.updatedAt || s.addedAt || 0), 0);
+          if (syncMax >= localMax) {
+            result[k] = syncArr;
+            if (this.hasLocal && JSON.stringify(localRes[k]) !== JSON.stringify(syncArr)) {
+              chrome.storage.local.set({ [k]: syncArr });
+            }
+          } else {
+            result[k] = localArr;
+            needMigrateToSync[k] = localArr;
+          }
+        } else {
+          result[k] = [];
+        }
+        continue;
+      }
+
+      // 分类与规则数据：本地非空而 sync 为空时不覆盖
+      if (Array.isArray(localRes[k]) && localRes[k].length > 0 && (!Array.isArray(syncRes[k]) || syncRes[k].length === 0)) {
+        result[k] = localRes[k];
+        needMigrateToSync[k] = localRes[k];
+        continue;
+      }
+
       if (syncRes && syncRes[k] !== undefined && syncRes[k] !== null) {
         result[k] = syncRes[k];
         // 保持 local 副本最新
@@ -173,10 +210,22 @@ const navStorage = {
     const localItems = {};
 
     for (const [k, v] of Object.entries(items)) {
-      localItems[k] = v;
+      let val = v;
+      if (k === NAV_STORAGE_KEY && Array.isArray(v)) {
+        // 图标轻量化防御：防止 Base64 撑爆 sync 8KB 配额
+        val = v.map((s) => {
+          if (!s || typeof s !== "object") return s;
+          let icon = typeof s.icon === "string" ? s.icon : "";
+          if (icon.startsWith("data:") && icon.length > 2048) {
+            icon = "";
+          }
+          return { ...s, icon };
+        });
+      }
+      localItems[k] = val;
       // navRecent 存 local,其余核心配置与站点存 sync
       if (k !== NAV_RECENT_KEY) {
-        syncItems[k] = v;
+        syncItems[k] = val;
       }
     }
 

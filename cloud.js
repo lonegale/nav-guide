@@ -24,13 +24,18 @@ const navCloudMerge = {
   /* 规范化一条站点记录: 截断字段、保留(而非生成)id; 非法记录返回 null */
   normalizeSite(raw) {
     if (!raw || typeof raw.name !== "string" || !navIsCollectableUrl(raw.url)) return null;
+    let iconStr = typeof raw.icon === "string" ? raw.icon.trim() : "";
+    // 防御超大 Base64 Data URL 撑爆 storage.sync 配额(8KB)
+    if (iconStr.startsWith("data:") && iconStr.length > 2048) {
+      iconStr = "";
+    }
     return {
       id: typeof raw.id === "string" && raw.id ? raw.id : "",
       name: raw.name.trim().slice(0, 60),
       url: raw.url.trim(),
       desc: typeof raw.desc === "string" ? raw.desc.slice(0, 80) : "",
       account: typeof raw.account === "string" ? raw.account.slice(0, 500) : "",
-      icon: typeof raw.icon === "string" ? raw.icon : "",
+      icon: iconStr,
       category: (typeof raw.category === "string" && raw.category.trim())
         ? raw.category.trim().slice(0, 20)
         : NAV_QUICK_CATEGORY,
@@ -311,7 +316,14 @@ const navCloud = {
           return { gistId: auth.gistId, htmlUrl: data.html_url || auth.htmlUrl };
         }
       } catch (e) {
-        // Gist 可能在网页端被用户删除，忽略并向下检索或新建
+        // 关键安全修复：仅当 HTTP 404 (NOT_FOUND) 时才代表远端 Gist 被用户在网页端彻底删除；
+        // 若为网络错误 (NETWORK_ERROR)、限频 (403) 或服务器异常，绝不能误判为已删除并盲目新建空白 Gist！
+        if (e && e.code === "NOT_FOUND") {
+          console.warn("[navCloud] 记录的 Gist 已在远端被删除 (404)，准备检索或新建");
+        } else {
+          console.error("[navCloud] 校验已有 Gist 失败，中止同步以保全本地数据:", e);
+          throw e;
+        }
       }
     }
 
@@ -325,11 +337,21 @@ const navCloud = {
         return { gistId: found.id, htmlUrl: found.html_url };
       }
     } catch (e) {
-      // 检索失败继续尝试创建
+      // 关键安全修复：检索失败（如网络中断、限流）时，中止同步，绝不可静默穿透去新建覆盖！
+      console.error("[navCloud] 检索已有 Gist 列表失败，中止同步以保全本地数据:", e);
+      throw e;
     }
 
-    // 3. 未找到则创建新的 Secret Gist
-    const payload = initialPayload || {
+    // 3. 未找到则创建新的 Secret Gist（以本地数据为初值，绝不盲目写入空白）
+    const payload = initialPayload ? {
+      app: "nav-guide",
+      version: 3,
+      savedAt: new Date().toISOString(),
+      sites: Array.isArray(initialPayload.sites) ? initialPayload.sites : [],
+      hiddenDefaults: Array.isArray(initialPayload.hiddenDefaults) ? initialPayload.hiddenDefaults : [],
+      categoryOrder: Array.isArray(initialPayload.categoryOrder) ? initialPayload.categoryOrder : [],
+      categoryMap: (initialPayload.categoryMap && typeof initialPayload.categoryMap === "object") ? initialPayload.categoryMap : {},
+    } : {
       app: "nav-guide",
       version: 3,
       savedAt: new Date().toISOString(),
@@ -362,8 +384,8 @@ const navCloud = {
   },
 
   /* 下载云端数据，返回 { gistId, content, modifiedTime, htmlUrl } */
-  async download() {
-    const { gistId, htmlUrl } = await this.findOrCreateGist();
+  async download(initialPayload) {
+    const { gistId, htmlUrl } = await this.findOrCreateGist(initialPayload);
     const resp = await this._api("/gists/" + gistId);
     const data = await resp.json();
     if (!data.files || !data.files[NAV_GIST_FILENAME]) {
@@ -431,20 +453,38 @@ const navCloud = {
      localData 形如 { sites, hiddenDefaults, categoryOrder, categoryMap }。
      返回 { merged, uploaded, localChanged, stats, htmlUrl } 或抛出带 code 的错误。 */
   async runSync(localData) {
-    const remote = await this.download().catch((e) => {
+    const remote = await this.download(localData).catch((e) => {
       if (e.code === "NOT_LOGGED_IN") throw e;
       throw e;
     });
     const base = (await this.loadState()) || {};
 
     const remoteContent = remote ? remote.content : null;
-    const baseContent = base && base.sites !== undefined ? base : null;
+
+    // 关键安全修复 1：跨 Gist 基线防冲撞
+    // 若本地基线的 gistId 与当前远程 gistId 不一致，说明连接了不同 Gist，旧基线失效，避免误删
+    const isSameGist = !base.gistId || !remote.gistId || base.gistId === remote.gistId;
+    const baseContent = (isSameGist && base && base.sites !== undefined) ? base : null;
 
     const mSites = navCloudMerge.mergeSites(
       localData.sites,
       remoteContent ? remoteContent.sites : [],
       baseContent ? baseContent.sites : null
     );
+
+    // 关键安全修复 2：大批量删除熔断保护 (Circuit Breaker)
+    // 当本地有若干数据，但三方合并结果导致 50% 以上站点被删除或全部清空时，熔断拦截，优先保全本地数据
+    const localCount = (localData.sites || []).length;
+    const mergedCount = mSites.sites.length;
+    if (localCount >= 3 && (mergedCount === 0 || (localCount - mergedCount >= 3 && mergedCount < localCount * 0.5))) {
+      console.warn(`[navCloud] 触发大批量删除熔断保护：本地现有 ${localCount} 个站点，合并结果仅剩 ${mergedCount} 个站点。自动拒绝静默删除，保全本地数据！`);
+      const localMap = new Map((localData.sites || []).map((s) => [navCloudMerge.siteKey(s), s]));
+      mSites.sites.forEach((s) => localMap.set(navCloudMerge.siteKey(s), s));
+      mSites.sites = Array.from(localMap.values());
+      mSites.localChanged = false;
+      mSites.remoteChanged = true;
+    }
+
     const merged = {
       app: "nav-guide",
       version: 3,
