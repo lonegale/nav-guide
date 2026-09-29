@@ -485,6 +485,41 @@
 
   /* 同步结果回写本地存储(不直接改内存变量,统一走 onChanged 通路) */
   async function cloudApplyMerged(merged) {
+    if (!merged) return;
+
+    // 关键安全防御：大批量删除双重兜底校验
+    if (userSites && userSites.length >= 3 && (!merged.sites || merged.sites.length === 0)) {
+      console.warn("[nav-guide] 拦截到尝试清空本地站点的异常云同步回写，终止执行！");
+      return;
+    }
+
+    // 回写前在 local 自动生成带时间戳的安全滚动快照 (保留最新 5 份)
+    if (IS_EXT && chrome.storage && chrome.storage.local && userSites && userSites.length > 0) {
+      try {
+        const backupKey = `navBackup_sync_${Date.now()}`;
+        await chrome.storage.local.set({
+          [backupKey]: {
+            reason: "cloud-sync-auto-snapshot",
+            backedUpAt: Date.now(),
+            sites: userSites,
+            hiddenDefaults,
+            categoryOrder,
+            categoryMap,
+          },
+        });
+        const allLocal = await new Promise((r) => chrome.storage.local.get(null, r));
+        const syncBackups = Object.keys(allLocal || {})
+          .filter((k) => k.startsWith("navBackup_sync_"))
+          .sort();
+        if (syncBackups.length > 5) {
+          const toRemove = syncBackups.slice(0, syncBackups.length - 5);
+          await new Promise((r) => chrome.storage.local.remove(toRemove, r));
+        }
+      } catch (e) {
+        console.warn("[nav-guide] 云同步自动安全快照异常:", e);
+      }
+    }
+
     await storageSet({
       [NAV_STORAGE_KEY]: merged.sites,
       [NAV_HIDDEN_KEY]: merged.hiddenDefaults,

@@ -202,9 +202,12 @@
       // 网址被修改时丢弃旧 favicon,让导航页按新域名自动获取
       const origUrl = editing ? editing.url : (currentTab && currentTab.url) || "";
       const urlChanged = !origUrl || navNormalizeUrl(url) !== navNormalizeUrl(origUrl);
-      const iconUrl = urlChanged
+      let iconUrl = urlChanged
         ? ""
         : ((editing && editing.icon) || (currentTab && currentTab.favIconUrl) || "");
+      if (iconUrl.startsWith("data:") && iconUrl.length > 2048) {
+        iconUrl = "";
+      }
 
       const record = {
         id: editing ? editing.id : navSiteId(),
