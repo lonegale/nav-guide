@@ -13,6 +13,13 @@ else
   echo "⚠️ 当前目录非 git 仓库，请直接覆盖解压新文件。"
 fi
 
+CHROME_UNPACKED="$HOME/Library/Application Support/Google/Chrome/Default/UnpackedExtensions/nav-guide_SIIaGS"
+if [ -d "$CHROME_UNPACKED" ]; then
+  echo "📦 正在同步最新代码至 Chrome 解压扩展运行目录..."
+  cp -R background.js cloud.js common.js index.html index.js manifest.json popup.html popup.js icons "$CHROME_UNPACKED/"
+  echo "✅ 已同步至 Chrome 运行目录！"
+fi
+
 echo ""
 echo "📌 生效指引："
 echo "1. 打开 Chrome 浏览器，在地址栏输入 chrome://extensions"

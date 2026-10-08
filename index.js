@@ -488,8 +488,12 @@
     if (!merged) return;
 
     // 关键安全防御：大批量删除双重兜底校验
-    if (userSites && userSites.length >= 3 && (!merged.sites || merged.sites.length === 0)) {
+    if (userSites && userSites.length >= 1 && (!merged.sites || merged.sites.length === 0)) {
       console.warn("[nav-guide] 拦截到尝试清空本地站点的异常云同步回写，终止执行！");
+      return;
+    }
+    if (userSites && userSites.length >= 3 && merged.sites && (userSites.length - merged.sites.length >= 3 && merged.sites.length < userSites.length * 0.5)) {
+      console.warn("[nav-guide] 拦截到大批量删除异常云同步回写，终止执行！");
       return;
     }
 
@@ -744,13 +748,14 @@
   /* 扩展环境下,其他入口(popup / 右键菜单 / 云同步)写入后即时刷新本页,并对外部新增给出 toast 反馈 */
   if (IS_EXT && chrome.storage && chrome.storage.onChanged) {
     chrome.storage.onChanged.addListener((changes, area) => {
-      if (area !== "local" && area !== "sync") return;
+      if (area !== "local") return;
       let needRender = false;
 
       if (changes[NAV_STORAGE_KEY]) {
-        const next = Array.isArray(changes[NAV_STORAGE_KEY].newValue)
-          ? changes[NAV_STORAGE_KEY].newValue
-          : [];
+        if (!Array.isArray(changes[NAV_STORAGE_KEY].newValue)) {
+          return;
+        }
+        const next = changes[NAV_STORAGE_KEY].newValue;
         const nextSig = JSON.stringify(next);
 
         if (lastSavedSignature === nextSig) {
