@@ -84,6 +84,18 @@ function navNormalizeUrl(url) {
   }
 }
 
+/* 提取展示用的域名或 IP 地址(含非默认端口号,去除 www.) */
+function navGetDisplayHost(url) {
+  if (!url) return "";
+  try {
+    const u = new URL(url);
+    let host = u.host || u.hostname || "";
+    return host.replace(/^www\./i, "");
+  } catch (e) {
+    return url;
+  }
+}
+
 /* 在站点数组中查找与 url 匹配的站点(规范化比较),返回元素或 undefined */
 function navFindSite(sites, url) {
   const n = navNormalizeUrl(url);

@@ -119,17 +119,18 @@ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica N
 
 #### 网址卡片 (Site Card)
 - **网格规范**：
-  - 容器网格：`grid-template-columns: repeat(auto-fill, minmax(140px, 1fr))`。
-  - 间距：`gap: 8px 10px`。
+  - 容器网格：`grid-template-columns: repeat(6, minmax(0, 1fr))`（移动端 `repeat(2, minmax(0, 1fr))`）。
+  - 间距：`gap: 10px 12px`（移动端 `gap: 8px`）。
 - **卡片规格**：
-  - 尺寸：高度 `40px`，圆角 `11px`。
-  - 排版布局：紧凑单行水平 Flex 居中对齐（左侧 24px 精致图标容器，右侧站点标题）。
-  - 内边距：`padding: 0 10px`。
-  - 描述展示：常态隐藏，鼠标移入（Hover）时通过毛玻璃浮动气泡（Tooltip）即时浮现说明与域名。
+  - 尺寸：高度 `50px`，圆角 `11px`（移动端高度 `48px`，圆角 `10px`）。
+  - 排版布局：双行垂直信息层级（左侧 28px 精致图标容器，右侧主标题 + IP 地址/域名次级文本）。
+  - 内边距：`padding: 0 11px`（移动端 `padding: 0 9px`）。
+  - IP/域名展示：常态直观展示主机名或 IP 地址（含非默认端口号，如 `localhost:9010`、`192.168.31.194`、`36.140.239.117:6025`、`github.com`），去除冗余 `www.`。
+  - 描述与气泡：鼠标移入（Hover）时通过毛玻璃浮动气泡（Tooltip）即时浮现站点一句话描述与完整网址路径。
 - **三级图标策略 (Icon Strategy)**：
-  1. **Level 1**：配置了 `icon` 显式图片地址，直接加载渲染（16×16px）。
+  1. **Level 1**：配置了 `icon` 显式图片地址，直接加载渲染（18×18px）。
   2. **Level 2**：未配置时自动请求 `https://<domain>/favicon.ico`。
-  3. **Level 3 降级**：图片加载 `onerror` 时，平滑切换为 **首字母彩色圆形/圆角徽章**（通过站名字符 Hash 算法生成固定的高饱和柔和渐变底色，文字白色 11px 粗体）。
+  3. **Level 3 降级**：图片加载 `onerror` 时，平滑切换为 **首字母彩色圆形/圆角徽章**（通过站名字符 Hash 算法生成固定的高饱和柔和渐变底色，文字白色 12px 粗体）。
 - **动效规范**：
   - `transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s, background-color 0.2s`
   - **Hover**：`transform: translateY(-2px);` 阴影加深，高光边框显现，上方浮现说明 Tooltip 气泡。

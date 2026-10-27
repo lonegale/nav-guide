@@ -211,6 +211,10 @@
     if (host === "localhost") return true;
     const labels = host.split(".");
     if (labels.length < 2) return false;
+    // IPv4 格式: 4段纯数字(0~255)
+    if (labels.length === 4 && labels.every((n) => /^\d+$/.test(n) && Number(n) >= 0 && Number(n) <= 255)) {
+      return true;
+    }
     const tld = labels[labels.length - 1].toLowerCase();
     return tld.length >= 3 || COMMON_TLDS.has(tld);
   }
@@ -223,7 +227,11 @@
     }
     // URL 直达:输入网址时直接打开,而非搜索该字符串
     if (looksLikeUrl(query)) {
-      const url = /^https?:/i.test(query) ? query : "https://" + query;
+      let url = query;
+      if (!/^https?:/i.test(url)) {
+        const isIpOrLocal = /^(\[[0-9a-f:]+\]|(?:\d{1,3}\.){3}\d{1,3}|localhost)(?::\d+)?/i.test(url);
+        url = (isIpOrLocal ? "http://" : "https://") + url;
+      }
       window.open(url, "_blank", "noopener,noreferrer");
       return;
     }
@@ -895,15 +903,16 @@
     } catch (e) {
       domain = site.url;
     }
+    const displayHost = typeof navGetDisplayHost === "function" ? navGetDisplayHost(site.url) : (domain || site.url);
 
-    // Hover tooltip:描述 + 域名。账号信息不放入 title,防肩窥(改由 👤 点击查看)
+    // Hover tooltip:描述 + IP/域名。账号信息不放入 title,防肩窥(改由 👤 点击查看)
     const titleParts = [];
     if (site.desc) titleParts.push(site.desc);
-    titleParts.push(domain);
+    if (displayHost) titleParts.push(displayHost);
     card.title = titleParts.join("\n");
 
-    // 搜索过滤用的小写索引串
-    card.dataset.search = [site.name, site.desc || "", domain, site.url]
+    // 搜索过滤用的小写索引串(支持站名、描述、展示主机名、域名、完整网址)
+    card.dataset.search = [site.name, site.desc || "", displayHost, domain, site.url]
       .join(" ")
       .toLowerCase();
 
@@ -941,14 +950,14 @@
       iconWrapper.appendChild(fallbackBadge);
     }
 
-    // Info section
+    // Info section: 站名 + IP/域名次级展示
     const info = document.createElement("div");
     info.className = "site-info";
     info.innerHTML = `
-      <div class="site-name">
-        ${escapeHtml(site.name)}${site.account ? '<button type="button" class="account-badge" title="查看账号信息">👤</button>' : ""}
+      <div class="site-name-row">
+        <span class="site-name">${escapeHtml(site.name)}</span>${site.account ? '<button type="button" class="account-badge" title="查看账号信息">👤</button>' : ""}
       </div>
-      <div class="site-desc">${escapeHtml(site.desc || domain)}</div>
+      <div class="site-host" title="${escapeHtml(displayHost)}">${escapeHtml(displayHost)}</div>
     `;
     const badge = info.querySelector(".account-badge");
     if (badge) {
@@ -959,6 +968,19 @@
         showAccountPopover(site, e);
       });
     }
+
+    // 浮动气泡(Hover Tooltip):呈现描述与完整网址
+    const descTooltip = document.createElement("div");
+    descTooltip.className = "site-desc";
+    if (site.desc) {
+      descTooltip.innerHTML = `
+        <span class="tooltip-desc">${escapeHtml(site.desc)}</span>
+        <span class="tooltip-url">${escapeHtml(site.url)}</span>
+      `;
+    } else {
+      descTooltip.innerHTML = `<span class="tooltip-url">${escapeHtml(site.url)}</span>`;
+    }
+    card.appendChild(descTooltip);
 
     // 角标按钮:用户站点 → 编辑(⋯);默认站点 → 隐藏(✕,仅扩展环境)
     if (allowCorner) {
