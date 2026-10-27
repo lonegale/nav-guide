@@ -304,16 +304,19 @@ const navCloud = {
       throw e;
     }
 
-    // 1. 若本地已有记录的 gistId，先校验该 Gist 是否存在
-    if (auth && auth.gistId) {
+    // 1. 若本地或基线已有记录的 gistId，先校验该 Gist 是否存在
+    const state = (await this.loadState()) || {};
+    const recordedGistId = (auth && auth.gistId) || (state && state.gistId) || "";
+
+    if (recordedGistId) {
       try {
-        const resp = await this._api("/gists/" + auth.gistId, {}, token);
+        const resp = await this._api("/gists/" + recordedGistId, {}, token);
         const data = await resp.json();
         if (data && data.files && data.files[NAV_GIST_FILENAME]) {
-          if (data.html_url && data.html_url !== auth.htmlUrl) {
-            await navCloudAuth.save({ htmlUrl: data.html_url });
+          if (!auth || auth.gistId !== recordedGistId || (data.html_url && data.html_url !== auth.htmlUrl)) {
+            await navCloudAuth.save({ gistId: recordedGistId, htmlUrl: data.html_url || auth.htmlUrl });
           }
-          return { gistId: auth.gistId, htmlUrl: data.html_url || auth.htmlUrl };
+          return { gistId: recordedGistId, htmlUrl: data.html_url || auth.htmlUrl };
         }
       } catch (e) {
         // 关键安全修复：仅当 HTTP 404 (NOT_FOUND) 时才代表远端 Gist 被用户在网页端彻底删除；
@@ -342,15 +345,19 @@ const navCloud = {
       throw e;
     }
 
-    // 3. 未找到则创建新的 Secret Gist（以本地数据为初值，绝不盲目写入空白）
-    const payload = initialPayload ? {
+    // 3. 未找到则创建新的 Secret Gist（以本地数据或历史基线为初值，绝不盲目写入空白）
+    const effectivePayload = (initialPayload && Array.isArray(initialPayload.sites) && initialPayload.sites.length > 0)
+      ? initialPayload
+      : ((state && Array.isArray(state.sites) && state.sites.length > 0) ? state : initialPayload);
+
+    const payload = effectivePayload ? {
       app: "nav-guide",
       version: 3,
       savedAt: new Date().toISOString(),
-      sites: Array.isArray(initialPayload.sites) ? initialPayload.sites : [],
-      hiddenDefaults: Array.isArray(initialPayload.hiddenDefaults) ? initialPayload.hiddenDefaults : [],
-      categoryOrder: Array.isArray(initialPayload.categoryOrder) ? initialPayload.categoryOrder : [],
-      categoryMap: (initialPayload.categoryMap && typeof initialPayload.categoryMap === "object") ? initialPayload.categoryMap : {},
+      sites: Array.isArray(effectivePayload.sites) ? effectivePayload.sites : [],
+      hiddenDefaults: Array.isArray(effectivePayload.hiddenDefaults) ? effectivePayload.hiddenDefaults : [],
+      categoryOrder: Array.isArray(effectivePayload.categoryOrder) ? effectivePayload.categoryOrder : [],
+      categoryMap: (effectivePayload.categoryMap && typeof effectivePayload.categoryMap === "object") ? effectivePayload.categoryMap : {},
     } : {
       app: "nav-guide",
       version: 3,

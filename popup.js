@@ -37,7 +37,9 @@
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyScheme);
 
   function domainOf(url) {
-    try { return new URL(url).hostname; } catch (e) { return url; }
+    return typeof navGetDisplayHost === "function" ? navGetDisplayHost(url) : (function () {
+      try { return new URL(url).host.replace(/^www\./i, ""); } catch (e) { return url; }
+    })();
   }
 
   function setIconPreview(iconUrl, initial) {
